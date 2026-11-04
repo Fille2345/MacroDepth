@@ -3,6 +3,7 @@
 import ARKit
 import Foundation
 import Observation
+import OSLog
 import UIKit
 
 /// Drives the scan flow: start scanner → top-down photo → optional angled photo
@@ -36,6 +37,7 @@ final class ScanViewModel {
     }
 
     static let gramStep = 5.0
+    private nonisolated static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MacroDepth", category: "Scan")
 
     private(set) var phase: Phase = .idle
     private(set) var scannerState: ScannerState = .idle
@@ -62,6 +64,7 @@ final class ScanViewModel {
     @ObservationIgnored private let nutrition: any NutritionServiceProtocol
     @ObservationIgnored private let persistence: any PersistenceServiceProtocol
     @ObservationIgnored private let permissions: any CameraPermissionProviding
+    @ObservationIgnored private let volumeCalculator: any VolumeCalculatorServiceProtocol
     @ObservationIgnored private var analysisTask: Task<Void, Never>?
     @ObservationIgnored private var scannerStartTask: Task<Void, Never>?
     /// Recipe notes waiting for a meal that's being analyzed or reviewed to finish.
@@ -74,12 +77,14 @@ final class ScanViewModel {
         nutrition: any NutritionServiceProtocol,
         persistence: any PersistenceServiceProtocol,
         permissions: any CameraPermissionProviding,
+        volumeCalculator: any VolumeCalculatorServiceProtocol = VolumeCalculatorService(),
         now: Date = .now
     ) {
         self.scanner = scanner
         self.nutrition = nutrition
         self.persistence = persistence
         self.permissions = permissions
+        self.volumeCalculator = volumeCalculator
         self.capabilities = scanner.capabilities
         self.previewSession = (scanner as? ARScannerService)?.session
         self.mealType = .suggested(for: now)
@@ -353,16 +358,21 @@ final class ScanViewModel {
             self.detections = detections
 
             phase = .estimating
-            // Per-item LiDAR volumes are computed here from Phase 3 on. Until then every
-            // item takes the photo-only path, which the review screen flags.
-            let volumes: [UUID: VolumeMeasurement] = [:]
+            let measuredSizes = await Self.measureVolumes(of: detections, in: capture, using: volumeCalculator)
+            try Task.checkCancellation()
+            let volumes = measuredSizes.mapValues(\.measurement)
             let queries = detections.map {
                 NutritionQuery(id: $0.id, label: $0.label, category: $0.category, measuredVolume: volumes[$0.id])
             }
             let estimates = try await nutrition.estimateNutrition(for: queries, images: images, userNotes: notes)
             try Task.checkCancellation()
 
-            let drafts = MealDraftBuilder.makeItems(detections: detections, estimates: estimates, volumes: volumes)
+            let drafts = MealDraftBuilder.makeItems(
+                detections: detections,
+                estimates: estimates,
+                volumes: volumes,
+                measuredSizes: measuredSizes
+            )
             guard !drafts.isEmpty else {
                 throw NutritionServiceError.decodingFailed("no usable nutrition estimates were returned")
             }
@@ -377,6 +387,30 @@ final class ScanViewModel {
             applyQueuedNotes()
             phase = .failed(ErrorPresentation(error))
         }
+    }
+
+    /// Measures each item from depth, off the main actor. An item that can't be measured
+    /// is left out, so it alone falls back to a photo estimate from the nutrition stage.
+    private nonisolated static func measureVolumes(
+        of detections: [DetectedFoodItem],
+        in capture: DepthCapture,
+        using calculator: any VolumeCalculatorServiceProtocol
+    ) async -> [UUID: FoodVolumeEstimate] {
+        guard let depthMap = capture.depthMap, let intrinsics = capture.intrinsics else { return [:] }
+        var results: [UUID: FoodVolumeEstimate] = [:]
+        for detection in detections {
+            do {
+                results[detection.id] = try calculator.estimateVolume(
+                    in: detection.boundingBox,
+                    shape: FoodShape(category: detection.category),
+                    depthMap: depthMap,
+                    intrinsics: intrinsics
+                )
+            } catch {
+                logger.notice("Using a photo estimate for \(detection.label): \(String(describing: error), privacy: .public)")
+            }
+        }
+        return results
     }
 
     private func applyQueuedNotes() {

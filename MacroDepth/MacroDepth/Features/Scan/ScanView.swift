@@ -477,10 +477,16 @@ private struct FoodDraftRow: View {
                     .font(.body.monospacedDigit())
             }
 
-            if let volume = draft.portion.volume {
-                Text("Measured volume \(NutritionFormat.volume(cubicCentimeters: volume.cubicCentimeters))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if let size = draft.measuredSize {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Size (W × L × H): \(NutritionFormat.dimensions(size))")
+                    Text("Volume: \(NutritionFormat.volume(size.measurement)) · \(size.shape.displayName)")
+                    if let density = draft.portion.densityGramsPerCubicCentimeter {
+                        Text("Density: \(NutritionFormat.density(density))")
+                    }
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
             }
         }
         .padding()

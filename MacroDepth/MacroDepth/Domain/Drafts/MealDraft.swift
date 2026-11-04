@@ -10,6 +10,8 @@ struct FoodItemDraft: Sendable, Hashable, Identifiable {
     var portion: PortionEstimate
     var macrosPer100Grams: MacroNutrients
     var boundingBox: NormalizedBoundingBox?
+    /// The dimensions behind a depth-measured portion. `nil` for photo estimates.
+    var measuredSize: FoodVolumeEstimate? = nil
 
     var totalMacros: MacroNutrients {
         macrosPer100Grams.forPortion(grams: portion.grams)
@@ -36,7 +38,8 @@ enum MealDraftBuilder {
     static func makeItems(
         detections: [DetectedFoodItem],
         estimates: [NutritionEstimate],
-        volumes: [UUID: VolumeMeasurement]
+        volumes: [UUID: VolumeMeasurement],
+        measuredSizes: [UUID: FoodVolumeEstimate] = [:]
     ) -> [FoodItemDraft] {
         let estimatesByID = Dictionary(estimates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -66,7 +69,8 @@ enum MealDraftBuilder {
                 category: estimate.category,
                 portion: portion,
                 macrosPer100Grams: estimate.macrosPer100Grams,
-                boundingBox: detection.boundingBox
+                boundingBox: detection.boundingBox,
+                measuredSize: measuredSizes[detection.id]
             )
         }
     }

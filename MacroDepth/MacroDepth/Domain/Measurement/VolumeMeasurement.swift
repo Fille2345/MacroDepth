@@ -5,6 +5,8 @@ import Foundation
 /// Volume of one food item measured from depth data.
 struct VolumeMeasurement: Sendable, Hashable {
     enum Method: String, Sendable, Codable {
+        /// Measured footprint and height above a fitted plane, applied to a simple solid.
+        case shapeHeuristic
         /// Single smoothed depth frame integrated as a height field above a fitted plane.
         case singleFrameHeightField
         /// Several frames fused into a point cloud (planned extension).

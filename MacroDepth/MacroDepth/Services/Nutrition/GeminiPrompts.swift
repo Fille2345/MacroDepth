@@ -57,7 +57,7 @@ enum GeminiPrompts {
         Items:
         \(queries.map(itemLine).joined(separator: "\n"))
 
-        `measured_volume_cm3` comes from the device's LiDAR sensor and is the volume under the item's visible surface, including air gaps. The app computes grams itself as volume × density, then computes final macros from those grams and your per-100 g values.
+        `measured_volume_cm3` is the item's whole volume including air gaps, calculated from its size as measured by the device's LiDAR sensor. The app computes grams itself as volume × density, then computes final macros from those grams and your per-100 g values.
 
         Work through these steps for each item:
         1. Use the images to judge what the item is and how it was prepared.

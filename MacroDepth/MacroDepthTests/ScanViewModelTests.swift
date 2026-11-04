@@ -36,6 +36,7 @@ private actor SpyNutritionService: NutritionServiceProtocol {
     private(set) var detectionNotes: [String?] = []
     private(set) var estimationImages: [[Data]] = []
     private(set) var estimationNotes: [String?] = []
+    private(set) var estimationQueries: [NutritionQuery] = []
 
     private let mock = MockNutritionService(latency: .zero)
 
@@ -48,6 +49,7 @@ private actor SpyNutritionService: NutritionServiceProtocol {
     func estimateNutrition(for queries: [NutritionQuery], images: [Data], userNotes: String?) async throws -> [NutritionEstimate] {
         estimationImages.append(images)
         estimationNotes.append(userNotes)
+        estimationQueries.append(contentsOf: queries)
         return try await mock.estimateNutrition(for: queries, images: images, userNotes: userNotes)
     }
 }
@@ -65,8 +67,164 @@ private struct PartialNutritionService: NutritionServiceProtocol {
     }
 }
 
+/// Measures with the real service, except for boxes it's told to fail.
+private final class StubVolumeCalculator: VolumeCalculatorServiceProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private let failingBoxes: Set<NormalizedBoundingBox>
+    private let failure: VolumeCalculationError
+    private var recordedShapes: [NormalizedBoundingBox: FoodShape] = [:]
+
+    init(failingBoxes: Set<NormalizedBoundingBox>, failure: VolumeCalculationError = .insufficientDepthData) {
+        self.failingBoxes = failingBoxes
+        self.failure = failure
+    }
+
+    var shapes: [NormalizedBoundingBox: FoodShape] { lock.withLock { recordedShapes } }
+
+    func estimateVolume(
+        in box: NormalizedBoundingBox,
+        shape: FoodShape,
+        depthMap: DepthMap,
+        intrinsics: CameraIntrinsics
+    ) throws -> FoodVolumeEstimate {
+        lock.withLock { recordedShapes[box] = shape }
+        if failingBoxes.contains(box) { throw failure }
+        return try VolumeCalculatorService().estimateVolume(in: box, shape: shape, depthMap: depthMap, intrinsics: intrinsics)
+    }
+}
+
+/// Serves a capture with no depth, or depth without intrinsics.
+private struct NoDepthScanner: ARScannerServiceProtocol {
+    var keepsDepthMap = false
+    let capabilities = ScannerCapabilities.simulated
+    private let broadcaster = AsyncBroadcaster<ScannerState>(initialValue: .running(.normal))
+
+    func stateUpdates() -> AsyncStream<ScannerState> { broadcaster.stream() }
+    func start() async throws {}
+    func stop() async {}
+    func captureSecondaryImage() async throws -> Data { StubScanner.secondaryImage }
+
+    func capture() async throws -> DepthCapture {
+        let sample = try SampleScene.makeCapture(includeDepth: keepsDepthMap)
+        return DepthCapture(
+            imageJPEGData: sample.imageJPEGData,
+            imagePixelSize: sample.imagePixelSize,
+            depthMap: sample.depthMap,
+            intrinsics: nil,
+            cameraPose: nil
+        )
+    }
+}
+
 @MainActor
 struct ScanViewModelTests {
+    private func runToReview(_ viewModel: ScanViewModel) async throws {
+        try await waitForPhase(.ready, in: viewModel)
+        viewModel.capturePrimaryPhoto()
+        try await waitForPhase(.awaitingSecondaryPhoto, in: viewModel)
+        viewModel.skipSecondaryPhoto()
+        viewModel.analyze()
+        try await waitForPhase(.review, in: viewModel)
+    }
+
+    @Test func measuredVolumesReachGeminiAndDriveTheGrams() async throws {
+        let spy = SpyNutritionService()
+        let viewModel = makeViewModel(nutrition: spy, persistence: try SwiftDataPersistenceService.makeInMemory())
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+        try await runToReview(viewModel)
+
+        let queries = await spy.estimationQueries
+        #expect(queries.count == SampleScene.foods.count)
+        #expect(queries.allSatisfy { $0.measuredVolume?.method == .shapeHeuristic })
+
+        #expect(viewModel.drafts.count == SampleScene.foods.count)
+        #expect(!viewModel.hasPhotoOnlyEstimates)
+        for draft in viewModel.drafts {
+            let size = try #require(draft.measuredSize)
+            let density = try #require(draft.portion.densityGramsPerCubicCentimeter)
+            #expect(draft.portion.source == .lidarVolume)
+            #expect(draft.portion.volume == size.measurement)
+            #expect(size.widthCentimeters > 0 && size.lengthCentimeters > 0 && size.heightCentimeters > 0)
+            #expect(abs(draft.portion.grams - size.measurement.cubicCentimeters * density) < 1e-9)
+        }
+    }
+
+    @Test func eachItemUsesItsCategorysShape() async throws {
+        let calculator = StubVolumeCalculator(failingBoxes: [])
+        let viewModel = makeViewModel(
+            nutrition: MockNutritionService(latency: .zero),
+            persistence: try SwiftDataPersistenceService.makeInMemory(),
+            volumeCalculator: calculator
+        )
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+        try await runToReview(viewModel)
+
+        for food in SampleScene.foods {
+            #expect(calculator.shapes[SampleScene.boundingBox(for: food)] == FoodShape(category: food.category))
+        }
+        let chicken = try #require(viewModel.drafts.first { $0.category == .meat })
+        #expect(chicken.measuredSize?.shape == .slab)
+    }
+
+    @Test(arguments: [VolumeCalculationError.insufficientDepthData, .invalidIntrinsics, .noReferenceSurface, .noFoodAboveSurface])
+    func oneUnmeasurableItemFallsBackAloneToAPhotoEstimate(failure: VolumeCalculationError) async throws {
+        let failing = try #require(SampleScene.foods.first)
+        let spy = SpyNutritionService()
+        let calculator = StubVolumeCalculator(failingBoxes: [SampleScene.boundingBox(for: failing)], failure: failure)
+        let viewModel = makeViewModel(nutrition: spy, persistence: try SwiftDataPersistenceService.makeInMemory(), volumeCalculator: calculator)
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+        try await runToReview(viewModel)
+
+        let queries = await spy.estimationQueries
+        #expect(queries.first { $0.label == failing.label }?.measuredVolume == nil)
+        #expect(queries.filter { $0.measuredVolume != nil }.count == SampleScene.foods.count - 1)
+
+        #expect(viewModel.drafts.count == SampleScene.foods.count)
+        #expect(viewModel.hasPhotoOnlyEstimates)
+        #expect(!viewModel.hasUnestimatedItems)
+        for draft in viewModel.drafts {
+            let isFailing = draft.name == failing.label
+            #expect(draft.portion.source == (isFailing ? .visualEstimate : .lidarVolume))
+            #expect((draft.measuredSize == nil) == isFailing)
+        }
+        let photoEstimate = try #require(viewModel.drafts.first { $0.name == failing.label })
+        #expect(photoEstimate.portion.grams == failing.visualEstimateGrams)
+    }
+
+    @Test(arguments: [false, true])
+    func captureWithoutUsableDepthUsesPhotoEstimatesThroughout(keepsDepthMap: Bool) async throws {
+        let calculator = StubVolumeCalculator(failingBoxes: [])
+        let viewModel = makeViewModel(
+            scanner: NoDepthScanner(keepsDepthMap: keepsDepthMap),
+            nutrition: MockNutritionService(latency: .zero),
+            persistence: try SwiftDataPersistenceService.makeInMemory(),
+            volumeCalculator: calculator
+        )
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+        try await runToReview(viewModel)
+
+        #expect(calculator.shapes.isEmpty)
+        #expect(!viewModel.drafts.isEmpty)
+        #expect(viewModel.drafts.allSatisfy { $0.portion.source == .visualEstimate && $0.measuredSize == nil })
+    }
+
+    @Test func editingTheWeightKeepsTheMeasurementVisible() async throws {
+        let viewModel = makeViewModel(nutrition: MockNutritionService(latency: .zero), persistence: try SwiftDataPersistenceService.makeInMemory())
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+        try await runToReview(viewModel)
+
+        let draft = try #require(viewModel.drafts.first)
+        viewModel.stepGrams(for: draft.id, by: ScanViewModel.gramStep)
+        let edited = try #require(viewModel.drafts.first { $0.id == draft.id })
+        #expect(edited.portion.source == .userAdjusted)
+        #expect(edited.measuredSize == draft.measuredSize)
+    }
+
     @Test func flagsAnItemWithoutAnEstimate() async throws {
         let viewModel = makeViewModel(nutrition: PartialNutritionService(), persistence: try SwiftDataPersistenceService.makeInMemory())
         let activation = Task { await viewModel.activate() }
@@ -106,13 +264,15 @@ struct ScanViewModelTests {
     private func makeViewModel(
         scanner: any ARScannerServiceProtocol = StubScanner(),
         nutrition: any NutritionServiceProtocol,
-        persistence: any PersistenceServiceProtocol
+        persistence: any PersistenceServiceProtocol,
+        volumeCalculator: any VolumeCalculatorServiceProtocol = VolumeCalculatorService()
     ) -> ScanViewModel {
         ScanViewModel(
             scanner: scanner,
             nutrition: nutrition,
             persistence: persistence,
-            permissions: MockCameraPermissionService()
+            permissions: MockCameraPermissionService(),
+            volumeCalculator: volumeCalculator
         )
     }
 
