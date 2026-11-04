@@ -1,5 +1,6 @@
 // Features/Scan/ScanViewModel.swift
 
+import ARKit
 import Foundation
 import Observation
 import UIKit
@@ -54,6 +55,8 @@ final class ScanViewModel {
     var userNotes = ""
 
     let capabilities: ScannerCapabilities
+    /// The session to show as the live camera feed. `nil` for the simulated scanner.
+    let previewSession: ARSession?
 
     @ObservationIgnored private let scanner: any ARScannerServiceProtocol
     @ObservationIgnored private let nutrition: any NutritionServiceProtocol
@@ -74,6 +77,7 @@ final class ScanViewModel {
         self.persistence = persistence
         self.permissions = permissions
         self.capabilities = scanner.capabilities
+        self.previewSession = (scanner as? ARScannerService)?.session
         self.mealType = .suggested(for: now)
     }
 

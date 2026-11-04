@@ -1,5 +1,6 @@
 // Features/Scan/ScanView.swift
 
+import ARKit
 import SwiftUI
 
 struct ScanView: View {
@@ -13,6 +14,7 @@ struct ScanView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     CapturePreviewCard(
                         image: viewModel.displayedImage,
+                        previewSession: viewModel.previewSession,
                         detections: viewModel.detections,
                         scannerState: viewModel.scannerState,
                         capabilities: viewModel.capabilities,
@@ -270,6 +272,7 @@ struct ScanView: View {
 
 private struct CapturePreviewCard: View {
     let image: UIImage?
+    let previewSession: ARSession?
     let detections: [DetectedFoodItem]
     let scannerState: ScannerState
     let capabilities: ScannerCapabilities
@@ -285,8 +288,16 @@ private struct CapturePreviewCard: View {
                         DetectionOverlayView(detections: detections)
                     }
                     .accessibilityLabel("Captured photo of the plate")
+            } else if let previewSession {
+                // Matches the upright 3:4 photo, so what's visible is what gets captured.
+                Color.black
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .overlay {
+                        ARCameraPreview(session: previewSession)
+                    }
+                    .accessibilityLabel("Live camera view")
             } else {
-                // Phase 2 replaces this placeholder with the live ARView.
+                // Simulated scanner: there's no camera feed to show.
                 Rectangle()
                     .fill(Color.black.gradient)
                     .aspectRatio(4.0 / 3.0, contentMode: .fit)
@@ -309,6 +320,9 @@ private struct CapturePreviewCard: View {
                         systemImage: "ruler"
                     )
                 }
+                if showsTrackingStatus {
+                    Text(scannerState.displayText)
+                }
             }
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 10)
@@ -317,6 +331,11 @@ private struct CapturePreviewCard: View {
             .padding(10)
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// On the live feed there's no placeholder text, so surface tracking problems here.
+    private var showsTrackingStatus: Bool {
+        image == nil && previewSession != nil && scannerState != .running(.normal)
     }
 }
 

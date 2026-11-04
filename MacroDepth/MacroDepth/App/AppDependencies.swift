@@ -49,10 +49,9 @@ final class AppDependencies {
         return makeLive()
     }
 
-    /// Phase 1 live graph: real persistence, permissions, configuration and
-    /// hardware detection. Scanning uses the simulated scanner and analysis uses
-    /// the mock service until `ARScannerService` (Phase 2) and
-    /// `GeminiNutritionService` (Phase 4) are added here.
+    /// Live graph: real persistence, permissions, configuration, hardware detection
+    /// and scanning. Analysis uses the mock service until `GeminiNutritionService`
+    /// (Phase 4) is added here.
     static func makeLive() -> AppDependencies {
         let persistence: SwiftDataPersistenceService
         var persistenceWarning: String?
@@ -63,16 +62,25 @@ final class AppDependencies {
             persistence = makeInMemoryStoreOrTerminate()
         }
 
+        let hardware = DeviceCapabilityProbe.currentHardware()
         return AppDependencies(
             mode: .live,
-            hardwareCapabilities: DeviceCapabilityProbe.currentHardware(),
-            scanner: SimulatedScannerService(),
+            hardwareCapabilities: hardware,
+            scanner: makeScanner(for: hardware),
             nutrition: MockNutritionService(),
             persistence: persistence,
             cameraPermissions: SystemCameraPermissionService(),
             configuration: AppConfiguration.load(),
             persistenceWarning: persistenceWarning
         )
+    }
+
+    /// Real hardware (with or without LiDAR) uses ARKit. The Simulator has no camera,
+    /// so it uses the synthetic scene.
+    static func makeScanner(for hardware: ScannerCapabilities) -> any ARScannerServiceProtocol {
+        hardware.requiresCameraAccess
+            ? ARScannerService(capabilities: hardware)
+            : SimulatedScannerService(capabilities: hardware)
     }
 
     static func makePreview(

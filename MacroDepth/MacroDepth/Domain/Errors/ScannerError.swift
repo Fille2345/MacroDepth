@@ -37,7 +37,8 @@ enum ScannerError: Error, Equatable, Sendable, LocalizedError {
         switch self {
         case .cameraPermissionDenied: "Allow camera access in Settings to scan meals."
         case .cameraPermissionRestricted: "Screen Time or a device profile may be blocking the camera."
-        case .worldTrackingUnsupported, .lidarUnavailable: "Portions will be estimated from photos instead."
+        case .worldTrackingUnsupported: "Scanning meals needs a device that supports AR tracking."
+        case .lidarUnavailable: "Portions will be estimated from photos instead."
         case .sessionNotRunning, .frameUnavailable, .captureTimedOut: "Hold the phone steady over the plate and try again."
         case .sessionInterrupted: "Return to the app and keep it in the foreground while scanning."
         case .sessionFailed, .imageEncodingFailed: "Try again. Restart the app if it keeps happening."

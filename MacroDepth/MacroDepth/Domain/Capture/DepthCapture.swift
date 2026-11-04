@@ -56,6 +56,27 @@ struct DepthMap: Sendable, Equatable {
         return ConfidenceLevel(rawValue: confidence[index]) ?? .low
     }
 
+    /// The same map rotated 90° clockwise, as when a landscape sensor frame is shown
+    /// upright on a portrait device. A sample at (column, row) moves to (height − 1 − row, column).
+    func rotatedClockwise() -> DepthMap? {
+        func rotate<Element>(_ source: [Element]) -> [Element] {
+            var rotated: [Element] = []
+            rotated.reserveCapacity(source.count)
+            for newRow in 0..<width {
+                for newColumn in 0..<height {
+                    rotated.append(source[(height - 1 - newColumn) * width + newRow])
+                }
+            }
+            return rotated
+        }
+        return DepthMap(
+            width: height,
+            height: width,
+            depthMeters: rotate(depthMeters),
+            confidence: confidence.map(rotate)
+        )
+    }
+
     /// Summary statistics over valid samples at or above `minimumConfidence`.
     func statistics(minimumConfidence: ConfidenceLevel = .low) -> DepthStatistics? {
         var samples: [Float] = []
@@ -158,6 +179,18 @@ struct CameraIntrinsics: Sendable, Equatable {
         )
     }
 
+    /// Intrinsics for the image rotated 90° clockwise, where a pixel (u, v) moves to
+    /// (height − v, u). Must be paired with `CameraPose.rotatedClockwise()`.
+    func rotatedClockwise() -> CameraIntrinsics {
+        CameraIntrinsics(
+            focalLengthX: focalLengthY,
+            focalLengthY: focalLengthX,
+            principalPointX: Float(referenceResolution.height) - principalPointY,
+            principalPointY: principalPointX,
+            referenceResolution: CGSize(width: referenceResolution.height, height: referenceResolution.width)
+        )
+    }
+
     /// Back-projects pixel `(column, row)` at metric `depth` into camera space.
     /// The result uses *image-aligned* axes (x right, y down, z forward). ARKit's
     /// camera space is x right, y up, z backward, so flip y and z before applying
@@ -189,6 +222,18 @@ struct CameraPose: Sendable, Equatable {
 
     var matrix: simd_float4x4 {
         simd_float4x4(columns: (column0, column1, column2, column3))
+    }
+
+    /// The pose whose camera axes match an image rotated 90° clockwise: the new x axis
+    /// (image right) is the sensor's +y, and the new y axis (image up) is the sensor's −x.
+    func rotatedClockwise() -> CameraPose {
+        let rotation = simd_float4x4(columns: (
+            SIMD4<Float>(0, 1, 0, 0),
+            SIMD4<Float>(-1, 0, 0, 0),
+            SIMD4<Float>(0, 0, 1, 0),
+            SIMD4<Float>(0, 0, 0, 1)
+        ))
+        return CameraPose(matrix: matrix * rotation)
     }
 
     var translation: SIMD3<Float> {

@@ -20,7 +20,8 @@ protocol ARScannerServiceProtocol: Sendable {
     func stop() async
 
     /// Captures the current frame: downscaled JPEG, depth map (if available),
-    /// intrinsics and camera pose.
+    /// intrinsics and camera pose. All of them are oriented upright for a
+    /// portrait-held device, so they stay aligned with each other.
     func capture() async throws -> DepthCapture
 
     /// Captures the optional angled photo as a downscaled JPEG. RGB only: the scan's

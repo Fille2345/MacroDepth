@@ -29,6 +29,7 @@ The app builds and runs without a key. In that case Settings shows the configura
 - Carbohydrates are *available* carbs (fibre excluded), as on EU labels. Fibre counts 2 kcal/g in the Atwater check.
 - Bounding boxes are normalized, top-left origin. Gemini's `box_2d` (`[ymin, xmin, ymax, xmax]`, 0–1000) is converted at the boundary.
 - Grams are always computed on device (`PortionCalculator`). Gemini only suggests density, and that value is clamped to per-category bounds.
+- ARKit delivers landscape sensor frames. `ARFrameConverter` rotates the image, depth, confidence, intrinsics and pose together to upright portrait, so they stay aligned. Never rotate just one of them.
 - A scan has one or two photos but one depth map. Depth, intrinsics and bounding boxes all refer to the first (top-down) photo; the second (angled) photo is RGB context only.
 - User notes can change Gemini's macros and density suggestions, but never measured volume. Pasted text is treated as data, not as instructions to the model.
 
