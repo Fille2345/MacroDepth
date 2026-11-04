@@ -6,7 +6,7 @@ import SwiftData
 
 @MainActor
 final class SwiftDataPersistenceService: PersistenceServiceProtocol {
-    static let schema = Schema([MealEntry.self, LoggedFoodItem.self])
+    static let schema = Schema([MealEntry.self, LoggedFoodItem.self, UserProfile.self])
 
     let container: ModelContainer
     let isStoredInMemoryOnly: Bool
@@ -14,6 +14,7 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
     private let imageStore: CaptureImageStore
     private let calendar: Calendar
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MacroDepth", category: "Persistence")
+    private let changeBroadcaster = AsyncBroadcaster<Void>()
 
     private var context: ModelContext { container.mainContext }
 
@@ -119,6 +120,7 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
             }
             throw PersistenceError.saveFailed(error.localizedDescription)
         }
+        changeBroadcaster.send(())
         return meal
     }
 
@@ -131,6 +133,7 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
             context.rollback()
             throw PersistenceError.deleteFailed(error.localizedDescription)
         }
+        changeBroadcaster.send(())
         // The record is gone; a leftover image file is harmless, so don't fail the delete.
         if let imageFileName {
             await removeImageIgnoringErrors(fileName: imageFileName)
@@ -141,7 +144,64 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         meal.imageFileName.map { imageStore.url(for: $0) }
     }
 
+    // MARK: Profile
+
+    func currentProfile() throws -> UserProfileDraft? {
+        do {
+            return try storedProfile()?.draft
+        } catch {
+            throw PersistenceError.profileFailed(error.localizedDescription)
+        }
+    }
+
+    func saveProfile(_ draft: UserProfileDraft) throws {
+        guard draft.isValid(calendar: calendar) else {
+            throw PersistenceError.invalidDraft("Your weight, height or age is outside the supported range.")
+        }
+        do {
+            if let existing = try storedProfile() {
+                existing.update(from: draft)
+            } else {
+                context.insert(UserProfile(draft: draft))
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.profileFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+    }
+
+    private func storedProfile() throws -> UserProfile? {
+        var descriptor = FetchDescriptor<UserProfile>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    // MARK: Changes
+
+    func changes() -> AsyncStream<Void> {
+        changeBroadcaster.stream()
+    }
+
     // MARK: Preview data
+
+    /// A typical adult profile, so previews show real targets.
+    func seedSampleProfile(referenceDate: Date = .now) {
+        let draft = UserProfileDraft(
+            weightKg: 80,
+            heightCm: 180,
+            birthYear: calendar.component(.year, from: referenceDate) - 30,
+            biologicalSex: .male,
+            activityLevel: .moderate,
+            goal: .leanBulk
+        )
+        do {
+            try saveProfile(draft)
+        } catch {
+            logger.error("Seeding the sample profile failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 
     /// Inserts a breakfast and a lunch for `referenceDate` using sample drafts.
     func seedSampleMeals(referenceDate: Date = .now) {
@@ -176,6 +236,7 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         } catch {
             logger.error("Seeding sample meals failed: \(error.localizedDescription, privacy: .public)")
         }
+        changeBroadcaster.send(())
     }
 
     // MARK: Private

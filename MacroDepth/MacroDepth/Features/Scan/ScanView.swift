@@ -80,6 +80,11 @@ struct ScanView: View {
             Text(captureHint)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            if viewModel.normalizedNotes != nil {
+                Label("Your notes will be sent with the photos. You can edit them after capturing.", systemImage: "note.text")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             Button {
                 viewModel.capturePrimaryPhoto()
             } label: {
@@ -195,6 +200,12 @@ struct ScanView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
+            }
+
+            if viewModel.hasQueuedNotes {
+                Label("Your recipe will be used for your next scan.", systemImage: "fork.knife")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             if viewModel.hasPhotoOnlyEstimates {

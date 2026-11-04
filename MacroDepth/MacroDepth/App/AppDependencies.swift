@@ -87,6 +87,7 @@ final class AppDependencies {
         scannerCapabilities: ScannerCapabilities = .simulated,
         nutritionBehavior: MockNutritionService.Behavior = .success,
         seedSampleMeals: Bool = true,
+        seedSampleProfile: Bool = true,
         configuration: Result<AppConfiguration, ConfigurationError> = .success(
             AppConfiguration(apiKey: "AIzaPreviewKey000000000000", modelID: AppConfiguration.defaultModelID)
         )
@@ -94,6 +95,9 @@ final class AppDependencies {
         let persistence = makeInMemoryStoreOrTerminate()
         if seedSampleMeals {
             persistence.seedSampleMeals()
+        }
+        if seedSampleProfile {
+            persistence.seedSampleProfile()
         }
         return AppDependencies(
             mode: .preview,

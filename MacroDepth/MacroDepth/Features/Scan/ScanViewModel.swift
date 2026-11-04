@@ -64,6 +64,10 @@ final class ScanViewModel {
     @ObservationIgnored private let permissions: any CameraPermissionProviding
     @ObservationIgnored private var analysisTask: Task<Void, Never>?
     @ObservationIgnored private var scannerStartTask: Task<Void, Never>?
+    /// Recipe notes waiting for a meal that's being analyzed or reviewed to finish.
+    private var queuedNotes: String?
+    /// The last recipe's text, so choosing another recipe replaces it but typed notes survive.
+    @ObservationIgnored private var lastPrefilledNotes: String?
 
     init(
         scanner: any ARScannerServiceProtocol,
@@ -113,6 +117,8 @@ final class ScanViewModel {
         }
     }
 
+    var hasQueuedNotes: Bool { queuedNotes != nil }
+
     var totalMacros: MacroNutrients { drafts.map(\.totalMacros).sum() }
 
     var hasPhotoOnlyEstimates: Bool {
@@ -134,6 +140,20 @@ final class ScanViewModel {
     }
 
     // MARK: Intents
+
+    /// Fills the notes from a recipe. A meal being analyzed or reviewed already used
+    /// its notes, so changing them would mislabel it; the recipe waits for the next scan.
+    func prefillNotes(_ notes: String) {
+        switch phase {
+        case .detecting, .estimating, .review, .saving:
+            queuedNotes = notes
+        case .saved:
+            queuedNotes = notes
+            reset()
+        default:
+            applyPrefilledNotes(notes)
+        }
+    }
 
     func capturePrimaryPhoto() {
         guard canCapture else { return }
@@ -230,6 +250,8 @@ final class ScanViewModel {
         analysisTask = nil
         clearCaptureResults()
         userNotes = ""
+        lastPrefilledNotes = nil
+        applyQueuedNotes()
         mealType = .suggested(for: .now)
         phase = phaseForCurrentScannerState()
     }
@@ -342,10 +364,28 @@ final class ScanViewModel {
         } catch is CancellationError {
             // Keep the photos and notes so the user can resubmit without retaking them.
             clearAnalysisResults()
+            applyQueuedNotes()
             phase = .readyToAnalyze
         } catch {
+            applyQueuedNotes()
             phase = .failed(ErrorPresentation(error))
         }
+    }
+
+    private func applyQueuedNotes() {
+        guard let queuedNotes else { return }
+        self.queuedNotes = nil
+        applyPrefilledNotes(queuedNotes)
+    }
+
+    private func applyPrefilledNotes(_ notes: String) {
+        let isBlank = userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isBlank || userNotes == lastPrefilledNotes {
+            userNotes = notes
+        } else {
+            userNotes += "\n\n\(notes)"
+        }
+        lastPrefilledNotes = userNotes == notes ? notes : nil
     }
 
     private func clearCaptureResults() {

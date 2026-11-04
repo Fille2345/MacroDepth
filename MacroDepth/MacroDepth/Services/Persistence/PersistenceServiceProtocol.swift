@@ -18,4 +18,14 @@ protocol PersistenceServiceProtocol: AnyObject {
     func deleteMeal(_ meal: MealEntry) async throws
 
     func imageURL(for meal: MealEntry) -> URL?
+
+    /// The stored profile as a value, or `nil` before setup.
+    func currentProfile() throws -> UserProfileDraft?
+
+    /// Creates or replaces the single stored profile.
+    func saveProfile(_ draft: UserProfileDraft) throws
+
+    /// Yields after every saved change to meals or the profile, wherever it was made.
+    /// Each call returns an independent stream that ends when its consumer is cancelled.
+    func changes() -> AsyncStream<Void>
 }

@@ -2,6 +2,16 @@
 
 import SwiftUI
 
+extension Color {
+    /// The app's accent. Dark enough for white labels on it and for use as text on
+    /// the background, in both light and dark mode.
+    static let brandGreen = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.13, green: 0.62, blue: 0.44, alpha: 1)
+            : UIColor(red: 0.05, green: 0.45, blue: 0.32, alpha: 1)
+    })
+}
+
 /// Energy and the three main macros as a row of tiles.
 struct MacroSummaryView: View {
     let macros: MacroNutrients
