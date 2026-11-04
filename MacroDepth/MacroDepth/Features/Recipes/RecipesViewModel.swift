@@ -14,6 +14,9 @@ final class RecipesViewModel {
     var selectedMealType: MealType?
 
     private(set) var remainingCalories: Double?
+    private(set) var savedMeals: [SavedMeal] = []
+    /// Confirms the last "Log This Meal Today", so a second tap isn't made by mistake.
+    private(set) var loggedConfirmation: String?
     private(set) var errorPresentation: ErrorPresentation?
 
     private var chosenGoal: FitnessGoal?
@@ -35,12 +38,17 @@ final class RecipesViewModel {
         )
     }
 
+    func imageURL(for savedMeal: SavedMeal) -> URL? {
+        persistence.imageURL(for: savedMeal)
+    }
+
     func fitsToday(_ recipe: RecipeSuggestion) -> Bool {
         RecipeRecommender.fits(recipe, remainingCalories: remainingCalories)
     }
 
     func load() {
         do {
+            savedMeals = try persistence.savedMeals()
             let profile = try persistence.currentProfile()
             profileGoal = profile?.goal
             if let profile {
@@ -54,6 +62,30 @@ final class RecipesViewModel {
         } catch {
             errorPresentation = ErrorPresentation(error)
         }
+    }
+
+    func logToday(_ savedMeal: SavedMeal) async {
+        let name = savedMeal.name
+        do {
+            try await persistence.logSavedMeal(savedMeal, at: now(), mealType: nil)
+            loggedConfirmation = "Logged \(name) for today."
+            load()
+        } catch {
+            errorPresentation = ErrorPresentation(error)
+        }
+    }
+
+    func delete(_ savedMeal: SavedMeal) async {
+        do {
+            try await persistence.deleteSavedMeal(savedMeal)
+            load()
+        } catch {
+            errorPresentation = ErrorPresentation(error)
+        }
+    }
+
+    func clearConfirmation() {
+        loggedConfirmation = nil
     }
 
     /// Call from the view's `.task`.

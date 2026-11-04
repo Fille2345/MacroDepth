@@ -4,6 +4,7 @@ import SwiftUI
 
 struct DashboardView: View {
     let viewModel: DashboardViewModel
+    let progressViewModel: ProgressTrackerViewModel
     let onQuickLog: () -> Void
 
     @Environment(\.scenePhase) private var scenePhase
@@ -29,6 +30,7 @@ struct DashboardView: View {
                     }
 
                     quickLogButton
+                    progressLink
                 }
                 .padding()
             }
@@ -80,6 +82,19 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity)
         .padding(24)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private var progressLink: some View {
+        NavigationLink {
+            ProgressTrackerView(viewModel: progressViewModel)
+        } label: {
+            Label("Weight & Progress", systemImage: "chart.line.uptrend.xyaxis")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .tint(.brandGreen)
     }
 
     private var quickLogButton: some View {
@@ -226,10 +241,18 @@ private struct MacroBar: View {
 
 #Preview("With meals") {
     let dependencies = AppDependencies.makePreview()
-    return DashboardView(viewModel: DashboardViewModel(persistence: dependencies.persistence), onQuickLog: {})
+    return DashboardView(
+        viewModel: DashboardViewModel(persistence: dependencies.persistence),
+        progressViewModel: ProgressTrackerViewModel(persistence: dependencies.persistence),
+        onQuickLog: {}
+    )
 }
 
 #Preview("No profile") {
     let dependencies = AppDependencies.makePreview(seedSampleMeals: false, seedSampleProfile: false)
-    return DashboardView(viewModel: DashboardViewModel(persistence: dependencies.persistence), onQuickLog: {})
+    return DashboardView(
+        viewModel: DashboardViewModel(persistence: dependencies.persistence),
+        progressViewModel: ProgressTrackerViewModel(persistence: dependencies.persistence),
+        onQuickLog: {}
+    )
 }

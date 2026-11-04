@@ -62,7 +62,7 @@ final class OnboardingViewModel: Identifiable {
     var age: Int? { Int(ageText.trimmingCharacters(in: .whitespaces)).flatMap { UserProfileDraft.ageRange.contains($0) ? $0 : nil } }
 
     /// Accepts "72.5" and "72,5", whatever the device's locale.
-    private static func parse(_ text: String) -> Double? {
+    static func parse(_ text: String) -> Double? {
         Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "."))
     }
 

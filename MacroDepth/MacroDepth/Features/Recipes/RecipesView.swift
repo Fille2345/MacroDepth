@@ -6,10 +6,18 @@ struct RecipesView: View {
     @Bindable var viewModel: RecipesViewModel
     let onUseInScan: (RecipeSuggestion) -> Void
 
+    @State private var recipeToDelete: SavedMeal?
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    recipeBookSection
+
+                    Text("Suggested for You")
+                        .font(.title3.bold())
+                        .padding(.top, 8)
+
                     Picker("Goal", selection: $viewModel.selectedGoal) {
                         ForEach(FitnessGoal.allCases) { goal in
                             Text(goal.shortName).tag(goal)
@@ -44,6 +52,46 @@ struct RecipesView: View {
         .task {
             await viewModel.observeChanges()
         }
+        .onDisappear { viewModel.clearConfirmation() }
+        .confirmationDialog(
+            "Delete this recipe?",
+            isPresented: Binding(get: { recipeToDelete != nil }, set: { if !$0 { recipeToDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: recipeToDelete
+        ) { savedMeal in
+            Button("Delete \(savedMeal.name)", role: .destructive) {
+                Task { await viewModel.delete(savedMeal) }
+            }
+        } message: { _ in
+            Text("Meals you've already logged from it stay in your log.")
+        }
+    }
+
+    @ViewBuilder
+    private var recipeBookSection: some View {
+        Text("Your Recipe Book")
+            .font(.title3.bold())
+
+        if let confirmation = viewModel.loggedConfirmation {
+            Label(confirmation, systemImage: "checkmark.circle.fill")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+
+        if viewModel.savedMeals.isEmpty {
+            Label("Tap Save as Recipe on a meal in your Log to keep it here.", systemImage: "bookmark")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(viewModel.savedMeals) { savedMeal in
+                SavedMealCard(
+                    savedMeal: savedMeal,
+                    imageURL: viewModel.imageURL(for: savedMeal),
+                    onLog: { Task { await viewModel.logToday(savedMeal) } },
+                    onDelete: { recipeToDelete = savedMeal }
+                )
+            }
+        }
     }
 
     private var mealTypeFilter: some View {
@@ -59,6 +107,54 @@ struct RecipesView: View {
                 }
             }
         }
+    }
+}
+
+private struct SavedMealCard: View {
+    let savedMeal: SavedMeal
+    let imageURL: URL?
+    let onLog: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                if let imageURL {
+                    AsyncImage(url: imageURL) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.secondary.opacity(0.15)
+                    }
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(savedMeal.name)
+                        .font(.headline)
+                    Text(savedMeal.orderedComponents.map(\.name).formatted(.list(type: .and)))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Button("Delete \(savedMeal.name)", systemImage: "trash", role: .destructive, action: onDelete)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+            }
+
+            MacroSummaryView(macros: savedMeal.totalMacros)
+
+            Button(action: onLog) {
+                Label("Log This Meal Today", systemImage: "plus.circle")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.brandGreen)
+        }
+        .padding()
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
     }
 }
 

@@ -99,6 +99,7 @@ final class AppDependencies {
         nutritionBehavior: MockNutritionService.Behavior = .success,
         seedSampleMeals: Bool = true,
         seedSampleProfile: Bool = true,
+        seedSampleProgress: Bool = false,
         configuration: Result<AppConfiguration, ConfigurationError> = .success(
             AppConfiguration(apiKey: "AIzaPreviewKey000000000000", modelID: AppConfiguration.defaultModelID)
         )
@@ -109,6 +110,9 @@ final class AppDependencies {
         }
         if seedSampleProfile {
             persistence.seedSampleProfile()
+        }
+        if seedSampleProgress {
+            persistence.seedSampleProgress()
         }
         return AppDependencies(
             mode: .preview,

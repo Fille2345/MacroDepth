@@ -14,6 +14,7 @@ struct RootView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedTab = Tab.dashboard
     @State private var dashboardViewModel: DashboardViewModel
+    @State private var progressViewModel: ProgressTrackerViewModel
     @State private var scanViewModel: ScanViewModel
     @State private var recipesViewModel: RecipesViewModel
     @State private var logViewModel: LogViewModel
@@ -23,6 +24,7 @@ struct RootView: View {
 
     init(dependencies: AppDependencies) {
         _dashboardViewModel = State(initialValue: DashboardViewModel(persistence: dependencies.persistence))
+        _progressViewModel = State(initialValue: ProgressTrackerViewModel(persistence: dependencies.persistence))
         _scanViewModel = State(initialValue: ScanViewModel(dependencies: dependencies))
         _recipesViewModel = State(initialValue: RecipesViewModel(persistence: dependencies.persistence))
         _logViewModel = State(initialValue: LogViewModel(persistence: dependencies.persistence))
@@ -33,7 +35,11 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            DashboardView(viewModel: dashboardViewModel, onQuickLog: { selectedTab = .scan })
+            DashboardView(
+                viewModel: dashboardViewModel,
+                progressViewModel: progressViewModel,
+                onQuickLog: { selectedTab = .scan }
+            )
                 .tabItem { Label("Dashboard", systemImage: "chart.pie") }
                 .tag(Tab.dashboard)
 

@@ -47,6 +47,18 @@ enum NutritionFormat {
         )
     }
 
+    /// For example "80.5 kg".
+    static func weight(kilograms value: Double) -> String {
+        Measurement(value: value, unit: UnitMass.kilograms).formatted(
+            .measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(1)))
+        )
+    }
+
+    /// For example "+1.2 kg" or "−0.4 kg".
+    static func weightChange(_ value: Double) -> String {
+        "\(value.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()))) \(UnitMass.kilograms.symbol)"
+    }
+
     static func percent(_ fraction: Double) -> String {
         fraction.formatted(.percent.precision(.fractionLength(0)))
     }

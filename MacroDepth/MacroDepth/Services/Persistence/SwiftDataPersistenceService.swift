@@ -495,6 +495,24 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         changeBroadcaster.send(())
     }
 
+    /// A month of gently falling weight and most days' meals, for previews.
+    func seedSampleProgress(referenceDate: Date = .now) {
+        for daysAgo in 1...30 {
+            guard let date = calendar.date(byAdding: .day, value: -daysAgo, to: referenceDate) else { continue }
+            if !daysAgo.isMultiple(of: 6) {
+                seedSampleMeals(referenceDate: date)
+            }
+            if !daysAgo.isMultiple(of: 4) {
+                let wobble = sin(Double(daysAgo) * 1.7) * 0.5
+                do {
+                    try saveWeight(kilograms: 80 + Double(daysAgo) * 0.05 + wobble, on: date)
+                } catch {
+                    logger.error("Seeding sample weight failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+    }
+
     // MARK: Private
 
     private func removeImageIgnoringErrors(fileName: String) async {

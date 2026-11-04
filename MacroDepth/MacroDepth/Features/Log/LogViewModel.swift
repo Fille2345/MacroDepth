@@ -9,6 +9,8 @@ final class LogViewModel {
     private(set) var selectedDay: Date
     private(set) var meals: [MealEntry] = []
     private(set) var errorPresentation: ErrorPresentation?
+    /// Confirms the last "Save as Recipe".
+    private(set) var savedConfirmation: String?
 
     @ObservationIgnored private let persistence: any PersistenceServiceProtocol
     @ObservationIgnored private let calendar: Calendar
@@ -54,6 +56,26 @@ final class LogViewModel {
         } catch {
             errorPresentation = ErrorPresentation(error)
         }
+    }
+
+    /// The meal's foods as a starting name, cut to the length a recipe name allows.
+    func suggestedRecipeName(for meal: MealEntry) -> String {
+        String(meal.orderedItems.map(\.name).formatted(.list(type: .and)).prefix(SavedMeal.maximumNameLength))
+    }
+
+    func saveAsRecipe(_ meal: MealEntry, name: String) async {
+        do {
+            let savedMeal = try await persistence.makeSavedMeal(from: meal, name: name)
+            savedConfirmation = "Saved \(savedMeal.name) to your Recipe Book."
+            errorPresentation = nil
+        } catch {
+            savedConfirmation = nil
+            errorPresentation = ErrorPresentation(error)
+        }
+    }
+
+    func clearConfirmation() {
+        savedConfirmation = nil
     }
 
     func dismissError() {

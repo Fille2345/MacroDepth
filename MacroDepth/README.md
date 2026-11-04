@@ -28,7 +28,7 @@ TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
 | `MacroDepth/App` | Entry point, dependency container, root tab view |
 | `MacroDepth/Domain` | Sendable value types, typed errors, SwiftData models, portion math |
 | `MacroDepth/Services` | Service protocols plus live, mock and simulated implementations |
-| `MacroDepth/Features` | View + `@Observable` view-model pairs (Dashboard, Scan, Recipes, Log, Settings, Onboarding) |
+| `MacroDepth/Features` | View + `@Observable` view-model pairs (Dashboard, Progress, Scan, Recipes, Log, Settings, Onboarding) |
 | `MacroDepth/Support` | Configuration, formatters, concurrency helpers, sample scene |
 | `MacroDepthTests` | Swift Testing suites |
 
