@@ -11,12 +11,15 @@ struct PortionEstimate: Sendable, Hashable {
         case visualEstimate
         /// The user edited the weight; treated as ground truth.
         case userAdjusted
+        /// Copied from a saved meal template rather than measured for this meal.
+        case savedMeal
 
         var displayName: String {
             switch self {
             case .lidarVolume: "LiDAR"
             case .visualEstimate: "Photo estimate"
             case .userAdjusted: "Adjusted"
+            case .savedMeal: "Saved meal"
             }
         }
     }

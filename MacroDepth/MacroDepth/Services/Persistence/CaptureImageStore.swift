@@ -47,6 +47,20 @@ actor CaptureImageStore {
         return fileName
     }
 
+    /// Copies a stored image to a new file owned by `id`, and returns its file name.
+    /// Returns `nil` if the source no longer exists, because photos are optional.
+    func copy(fileName: String, toID id: UUID) throws -> String? {
+        let source = url(for: fileName)
+        guard FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) else { return nil }
+        let data: Data
+        do {
+            data = try Data(contentsOf: source)
+        } catch {
+            throw PersistenceError.imageWriteFailed(error.localizedDescription)
+        }
+        return try write(data, id: id)
+    }
+
     func delete(fileName: String) throws {
         let fileURL = url(for: fileName)
         guard FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) else { return }

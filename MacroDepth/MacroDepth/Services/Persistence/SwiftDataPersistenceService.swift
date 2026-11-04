@@ -6,7 +6,14 @@ import SwiftData
 
 @MainActor
 final class SwiftDataPersistenceService: PersistenceServiceProtocol {
-    static let schema = Schema([MealEntry.self, LoggedFoodItem.self, UserProfile.self])
+    static let schema = Schema([
+        MealEntry.self,
+        LoggedFoodItem.self,
+        UserProfile.self,
+        WeightEntry.self,
+        SavedMeal.self,
+        SavedMealComponent.self,
+    ])
 
     let container: ModelContainer
     let isStoredInMemoryOnly: Bool
@@ -176,6 +183,255 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         var descriptor = FetchDescriptor<UserProfile>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
+    }
+
+    // MARK: Body weight
+
+    func weightEntries(in interval: DateInterval) throws -> [WeightEntry] {
+        let start = interval.start
+        let end = interval.end
+        let descriptor = FetchDescriptor<WeightEntry>(
+            predicate: #Predicate { $0.date >= start && $0.date < end },
+            sortBy: [SortDescriptor(\.date)]
+        )
+        do {
+            return try context.fetch(descriptor)
+        } catch {
+            throw PersistenceError.weightFailed(error.localizedDescription)
+        }
+    }
+
+    func latestWeightEntry() throws -> WeightEntry? {
+        var descriptor = FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+        descriptor.fetchLimit = 1
+        do {
+            return try context.fetch(descriptor).first
+        } catch {
+            throw PersistenceError.weightFailed(error.localizedDescription)
+        }
+    }
+
+    @discardableResult
+    func saveWeight(kilograms: Double, on date: Date) throws -> WeightEntry {
+        guard kilograms.isFinite, UserProfileDraft.weightRange.contains(kilograms) else {
+            throw PersistenceError.invalidDraft("Your weight is outside the supported range.")
+        }
+        guard let day = calendar.dateInterval(of: .day, for: date) else {
+            throw PersistenceError.weightFailed("Couldn't determine the day containing \(date).")
+        }
+
+        let entry: WeightEntry
+        if let existing = try weightEntries(in: day).first {
+            existing.weightKg = kilograms
+            existing.date = day.start
+            entry = existing
+        } else {
+            entry = WeightEntry(date: day.start, weightKg: kilograms)
+            context.insert(entry)
+        }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.weightFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+        return entry
+    }
+
+    func deleteWeightEntry(_ entry: WeightEntry) throws {
+        context.delete(entry)
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.weightFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+    }
+
+    // MARK: Saved meals
+
+    func savedMeals() throws -> [SavedMeal] {
+        let descriptor = FetchDescriptor<SavedMeal>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        do {
+            return try context.fetch(descriptor)
+        } catch {
+            throw PersistenceError.fetchFailed(error.localizedDescription)
+        }
+    }
+
+    @discardableResult
+    func saveSavedMeal(_ draft: SavedMealDraft) async throws -> SavedMeal {
+        let name = try Self.validated(draft)
+        let id = UUID()
+        var imageFileName: String?
+        if let imageData = draft.imageJPEGData {
+            imageFileName = try await imageStore.write(imageData, id: id)
+        }
+        return try await insertSavedMeal(
+            id: id,
+            name: name,
+            notes: MealNotes.normalized(draft.notes),
+            imageFileName: imageFileName,
+            components: draft.components
+        )
+    }
+
+    func updateSavedMeal(_ savedMeal: SavedMeal, with draft: SavedMealDraft) async throws {
+        let name = try Self.validated(draft)
+        var newImageFileName: String?
+        if let imageData = draft.imageJPEGData {
+            newImageFileName = try await imageStore.write(imageData, id: savedMeal.id)
+        }
+
+        for component in savedMeal.components {
+            context.delete(component)
+        }
+        savedMeal.components = []
+        savedMeal.name = name
+        savedMeal.notes = MealNotes.normalized(draft.notes)
+        savedMeal.updatedAt = .now
+        if let newImageFileName {
+            savedMeal.imageFileName = newImageFileName
+        }
+        for (index, componentDraft) in draft.components.enumerated() {
+            let component = SavedMealComponent(draft: componentDraft, sortIndex: index)
+            context.insert(component)
+            savedMeal.components.append(component)
+        }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.saveFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+    }
+
+    func deleteSavedMeal(_ savedMeal: SavedMeal) async throws {
+        let imageFileName = savedMeal.imageFileName
+        context.delete(savedMeal)
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.deleteFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+        if let imageFileName {
+            await removeImageIgnoringErrors(fileName: imageFileName)
+        }
+    }
+
+    func imageURL(for savedMeal: SavedMeal) -> URL? {
+        savedMeal.imageFileName.map { imageStore.url(for: $0) }
+    }
+
+    @discardableResult
+    func makeSavedMeal(from meal: MealEntry, name: String) async throws -> SavedMeal {
+        let draft = SavedMealDraft(
+            name: name,
+            notes: meal.notes,
+            components: meal.orderedItems.map(SavedMealComponentDraft.init(item:))
+        )
+        let validName = try Self.validated(draft)
+        let id = UUID()
+        var imageFileName: String?
+        if let sourceFileName = meal.imageFileName {
+            imageFileName = try await imageStore.copy(fileName: sourceFileName, toID: id)
+        }
+        return try await insertSavedMeal(
+            id: id,
+            name: validName,
+            notes: draft.notes,
+            imageFileName: imageFileName,
+            components: draft.components
+        )
+    }
+
+    @discardableResult
+    func logSavedMeal(_ savedMeal: SavedMeal, at timestamp: Date, mealType: MealType?) async throws -> MealEntry {
+        guard !savedMeal.components.isEmpty else {
+            throw PersistenceError.invalidDraft("A meal needs at least one food item.")
+        }
+
+        let mealID = UUID()
+        var imageFileName: String?
+        if let sourceFileName = savedMeal.imageFileName {
+            imageFileName = try await imageStore.copy(fileName: sourceFileName, toID: mealID)
+        }
+
+        let meal = MealEntry(
+            id: mealID,
+            timestamp: timestamp,
+            mealType: mealType ?? .suggested(for: timestamp),
+            imageFileName: imageFileName,
+            notes: savedMeal.notes
+        )
+        context.insert(meal)
+        meal.savedMeal = savedMeal
+        for (index, component) in savedMeal.orderedComponents.enumerated() {
+            let item = LoggedFoodItem(component: component, sortIndex: index)
+            context.insert(item)
+            meal.items.append(item)
+        }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            if let imageFileName {
+                await removeImageIgnoringErrors(fileName: imageFileName)
+            }
+            throw PersistenceError.saveFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+        return meal
+    }
+
+    /// Checks everything about a draft that doesn't need the store, and returns the clean name.
+    private static func validated(_ draft: SavedMealDraft) throws -> String {
+        guard let name = SavedMeal.validatedName(draft.name) else {
+            throw PersistenceError.invalidDraft("A saved meal needs a name of up to \(SavedMeal.maximumNameLength) characters.")
+        }
+        guard !draft.components.isEmpty else {
+            throw PersistenceError.invalidDraft("A saved meal needs at least one ingredient.")
+        }
+        guard draft.components.allSatisfy(\.isValid) else {
+            throw PersistenceError.invalidDraft("One or more ingredients have invalid values.")
+        }
+        return name
+    }
+
+    private func insertSavedMeal(
+        id: UUID,
+        name: String,
+        notes: String?,
+        imageFileName: String?,
+        components: [SavedMealComponentDraft]
+    ) async throws -> SavedMeal {
+        let savedMeal = SavedMeal(id: id, name: name, notes: notes, imageFileName: imageFileName)
+        context.insert(savedMeal)
+        for (index, componentDraft) in components.enumerated() {
+            let component = SavedMealComponent(draft: componentDraft, sortIndex: index)
+            context.insert(component)
+            savedMeal.components.append(component)
+        }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            if let imageFileName {
+                await removeImageIgnoringErrors(fileName: imageFileName)
+            }
+            throw PersistenceError.saveFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+        return savedMeal
     }
 
     // MARK: Changes

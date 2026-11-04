@@ -2,7 +2,7 @@
 
 import Foundation
 
-/// Storage boundary for logged meals.
+/// Storage boundary for logged meals, the profile, body weight and saved meals.
 ///
 /// Main-actor isolated because SwiftData models are bound to the context that
 /// fetched them. View models receive `@Model` objects and must only use them on
@@ -25,7 +25,45 @@ protocol PersistenceServiceProtocol: AnyObject {
     /// Creates or replaces the single stored profile.
     func saveProfile(_ draft: UserProfileDraft) throws
 
-    /// Yields after every saved change to meals or the profile, wherever it was made.
+    // MARK: Body weight
+
+    /// Entries in the interval, oldest first.
+    func weightEntries(in interval: DateInterval) throws -> [WeightEntry]
+
+    func latestWeightEntry() throws -> WeightEntry?
+
+    /// Records the day's weight, replacing any earlier entry for that calendar day.
+    @discardableResult
+    func saveWeight(kilograms: Double, on date: Date) throws -> WeightEntry
+
+    func deleteWeightEntry(_ entry: WeightEntry) throws
+
+    // MARK: Saved meals
+
+    /// All templates, most recently changed first.
+    func savedMeals() throws -> [SavedMeal]
+
+    @discardableResult
+    func saveSavedMeal(_ draft: SavedMealDraft) async throws -> SavedMeal
+
+    /// Replaces the template's name, notes and components. Meals already logged don't change.
+    func updateSavedMeal(_ savedMeal: SavedMeal, with draft: SavedMealDraft) async throws
+
+    /// Deletes the template. Meals logged from it stay in the log, unlinked.
+    func deleteSavedMeal(_ savedMeal: SavedMeal) async throws
+
+    func imageURL(for savedMeal: SavedMeal) -> URL?
+
+    /// Creates a template from a logged meal's current items. The meal itself isn't
+    /// linked to it, because it wasn't logged from the template.
+    @discardableResult
+    func makeSavedMeal(from meal: MealEntry, name: String) async throws -> SavedMeal
+
+    /// Logs a copy of the template. `mealType` defaults to the type suggested for `timestamp`.
+    @discardableResult
+    func logSavedMeal(_ savedMeal: SavedMeal, at timestamp: Date, mealType: MealType?) async throws -> MealEntry
+
+    /// Yields after every saved change to stored data, wherever it was made.
     /// Each call returns an independent stream that ends when its consumer is cancelled.
     func changes() -> AsyncStream<Void>
 }

@@ -43,6 +43,25 @@ final class LoggedFoodItem {
         energyKilocaloriesPer100g = draft.macrosPer100Grams.energyKilocalories
     }
 
+    /// A copy of a template's component. The new id and stored values keep this
+    /// item independent of later edits to the template.
+    init(component: SavedMealComponent, sortIndex: Int) {
+        id = UUID()
+        name = component.name
+        categoryRawValue = component.categoryRawValue
+        self.sortIndex = sortIndex
+        grams = component.grams
+        portionSourceRawValue = PortionEstimate.Source.savedMeal.rawValue
+        confidence = component.confidence
+        volumeCubicCentimeters = component.volumeCubicCentimeters
+        densityGramsPerCubicCentimeter = component.densityGramsPerCubicCentimeter
+        proteinGramsPer100g = component.proteinGramsPer100g
+        carbohydrateGramsPer100g = component.carbohydrateGramsPer100g
+        fatGramsPer100g = component.fatGramsPer100g
+        fiberGramsPer100g = component.fiberGramsPer100g
+        energyKilocaloriesPer100g = component.energyKilocaloriesPer100g
+    }
+
     var category: FoodCategory {
         FoodCategory(rawValue: categoryRawValue) ?? .other
     }

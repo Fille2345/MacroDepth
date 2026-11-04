@@ -17,6 +17,9 @@ final class MealEntry {
     var imageFileName: String?
     /// The user's notes or pasted recipe. Optional, so existing stores migrate automatically.
     var notes: String?
+    /// The template this meal was logged from, if any. It's `nil` for scanned meals and
+    /// once the template is deleted. Optional, so existing stores migrate automatically.
+    var savedMeal: SavedMeal?
 
     @Relationship(deleteRule: .cascade, inverse: \LoggedFoodItem.meal)
     var items: [LoggedFoodItem] = []

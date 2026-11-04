@@ -10,6 +10,7 @@ enum PersistenceError: Error, Equatable, Sendable, LocalizedError {
     case deleteFailed(String)
     case imageWriteFailed(String)
     case profileFailed(String)
+    case weightFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +21,7 @@ enum PersistenceError: Error, Equatable, Sendable, LocalizedError {
         case .deleteFailed(let detail): "The meal couldn't be deleted: \(detail)"
         case .imageWriteFailed(let detail): "The meal photo couldn't be stored: \(detail)"
         case .profileFailed(let detail): "Your goals couldn't be loaded or saved: \(detail)"
+        case .weightFailed(let detail): "Your weight couldn't be loaded or saved: \(detail)"
         }
     }
 
@@ -28,7 +30,7 @@ enum PersistenceError: Error, Equatable, Sendable, LocalizedError {
         case .storeUnavailable: "Restart the app. If it persists, free up storage space."
         case .invalidDraft: nil
         case .saveFailed, .imageWriteFailed: "Check available storage and try again."
-        case .fetchFailed, .deleteFailed, .profileFailed: "Try again."
+        case .fetchFailed, .deleteFailed, .profileFailed, .weightFailed: "Try again."
         }
     }
 }
