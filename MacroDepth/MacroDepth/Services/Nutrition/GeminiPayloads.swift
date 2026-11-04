@@ -4,7 +4,7 @@ import Foundation
 
 // The JSON shapes Gemini is asked to produce via `response_schema`.
 // These are the decoded *payload* text inside the response candidate; the HTTP
-// envelope (`candidates[0].content.parts[0].text`) is handled by the Phase 4 client.
+// envelope is handled by `GeminiGenerateContentResponse`.
 // Mapping to domain types validates everything the model returns.
 
 /// The `generateContent` request body: system prompt, text prompt and base64 images.
@@ -48,15 +48,17 @@ struct GeminiGenerateContentRequest: Encodable, Sendable {
 
     struct GenerationConfig: Encodable, Sendable {
         let responseMimeType = "application/json"
+        let responseSchema: GeminiResponseSchema
 
         enum CodingKeys: String, CodingKey {
             case responseMimeType = "response_mime_type"
+            case responseSchema = "response_schema"
         }
     }
 
     let systemInstruction: SystemInstruction
     let contents: [Content]
-    let generationConfig = GenerationConfig()
+    let generationConfig: GenerationConfig
 
     enum CodingKeys: String, CodingKey {
         case systemInstruction = "system_instruction"
@@ -66,15 +68,19 @@ struct GeminiGenerateContentRequest: Encodable, Sendable {
 
     /// Stage 1 request.
     static func detection(images: [Data], userNotes: String?) throws -> GeminiGenerateContentRequest {
-        try make(prompt: GeminiPrompts.detectionPrompt(userNotes: userNotes), images: images)
+        try make(prompt: GeminiPrompts.detectionPrompt(userNotes: userNotes), images: images, schema: .detection)
     }
 
     /// Stage 2 request. The text prompt carries each item's measured LiDAR volume.
     static func nutrition(queries: [NutritionQuery], images: [Data], userNotes: String?) throws -> GeminiGenerateContentRequest {
-        try make(prompt: GeminiPrompts.nutritionPrompt(queries: queries, userNotes: userNotes), images: images)
+        try make(
+            prompt: GeminiPrompts.nutritionPrompt(queries: queries, userNotes: userNotes),
+            images: images,
+            schema: .nutrition(queryIDs: queries.map(\.id))
+        )
     }
 
-    private static func make(prompt: String, images: [Data]) throws -> GeminiGenerateContentRequest {
+    private static func make(prompt: String, images: [Data], schema: GeminiResponseSchema) throws -> GeminiGenerateContentRequest {
         try NutritionImageUpload.validate(images)
         var parts: [Part] = [.text(prompt)]
         for (index, image) in images.enumerated() {
@@ -83,7 +89,8 @@ struct GeminiGenerateContentRequest: Encodable, Sendable {
         }
         return GeminiGenerateContentRequest(
             systemInstruction: SystemInstruction(parts: [.text(GeminiPrompts.systemInstruction)]),
-            contents: [Content(role: "user", parts: parts)]
+            contents: [Content(role: "user", parts: parts)],
+            generationConfig: GenerationConfig(responseSchema: schema)
         )
     }
 }

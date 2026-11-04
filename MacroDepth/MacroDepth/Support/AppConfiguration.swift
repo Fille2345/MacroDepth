@@ -10,7 +10,7 @@ import Foundation
 struct AppConfiguration: Sendable, Equatable {
     static let apiKeyInfoKey = "GEMINI_API_KEY"
     static let modelIDInfoKey = "GEMINI_MODEL_ID"
-    static let defaultModelID = "gemini-3.5-flash"
+    static let defaultModelID = "gemini-3.6-flash"
     static let placeholderAPIKey = "your-gemini-api-key"
     // Kept in code rather than .xcconfig, where "//" would start a comment.
     static let defaultAPIBaseURL = URL(string: "https://generativelanguage.googleapis.com/v1beta")!

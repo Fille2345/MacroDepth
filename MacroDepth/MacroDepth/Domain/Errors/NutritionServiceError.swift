@@ -18,11 +18,11 @@ enum NutritionServiceError: Error, Equatable, Sendable, LocalizedError {
 
     var isRetryable: Bool {
         switch self {
-        case .offline, .timedOut, .rateLimited, .emptyResponse, .noFoodDetected:
+        case .offline, .timedOut, .rateLimited, .emptyResponse, .noFoodDetected, .decodingFailed:
             true
         case .httpStatus(let code, _):
             code == 408 || (500...599).contains(code)
-        case .missingAPIKey, .invalidConfiguration, .invalidRequest, .imageTooLarge, .contentBlocked, .decodingFailed:
+        case .missingAPIKey, .invalidConfiguration, .invalidRequest, .imageTooLarge, .contentBlocked:
             false
         }
     }
@@ -49,8 +49,9 @@ enum NutritionServiceError: Error, Equatable, Sendable, LocalizedError {
     var recoverySuggestion: String? {
         switch self {
         case .missingAPIKey: "Add GEMINI_API_KEY to Config/Secrets.xcconfig and rebuild."
-        case .invalidConfiguration, .invalidRequest, .decodingFailed: "Try again. Report this if it keeps happening."
-        case .imageTooLarge: "Try again; the photo will be compressed further."
+        case .invalidConfiguration: "Check GEMINI_API_KEY and GEMINI_MODEL_ID in Config/Secrets.xcconfig, then rebuild."
+        case .invalidRequest, .decodingFailed: "Try again. Report this if it keeps happening."
+        case .imageTooLarge: "Start over and retake the photo."
         case .offline: "Check your connection and try again."
         case .timedOut, .emptyResponse: "Try again in a moment."
         case .rateLimited(let retryAfter):

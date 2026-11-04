@@ -5,7 +5,7 @@
 MACRODEPTH_BUNDLE_IDENTIFIER = com.example.MacroDepth
 
 // Gemini model used for detection and nutrition. Overridable per developer.
-GEMINI_MODEL_ID = gemini-3.5-flash
+GEMINI_MODEL_ID = gemini-3.6-flash
 
 // Intentionally empty. Put the real key in Config/Secrets.xcconfig.
 GEMINI_API_KEY =

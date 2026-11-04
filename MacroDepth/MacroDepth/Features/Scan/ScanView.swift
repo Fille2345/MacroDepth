@@ -193,7 +193,25 @@ struct ScanView: View {
             }
             .pickerStyle(.segmented)
 
+            if viewModel.usesSampleAnalysis {
+                Label(
+                    "Sample data, not your photo. Add a Gemini API key to analyze real meals.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(.orange)
+            }
+
             MacroSummaryView(macros: viewModel.totalMacros)
+
+            if viewModel.hasUnestimatedItems {
+                Label(
+                    "Some items found on the plate couldn't be estimated, so this total may be too low.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(.orange)
+            }
 
             if let notes = viewModel.normalizedNotes {
                 Label(notes, systemImage: "note.text")

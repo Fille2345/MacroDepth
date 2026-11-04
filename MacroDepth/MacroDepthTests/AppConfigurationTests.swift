@@ -9,11 +9,11 @@ struct AppConfigurationTests {
     @Test func loadsValidConfiguration() throws {
         let result = AppConfiguration.load(fromInfoDictionary: [
             "GEMINI_API_KEY": "  \(validKey)\n",
-            "GEMINI_MODEL_ID": "gemini-3.5-flash",
+            "GEMINI_MODEL_ID": "gemini-3.6-flash",
         ])
         let configuration = try result.get()
         #expect(configuration.apiKey == validKey)
-        #expect(configuration.modelID == "gemini-3.5-flash")
+        #expect(configuration.modelID == "gemini-3.6-flash")
         #expect(configuration.apiBaseURL.host() == "generativelanguage.googleapis.com")
     }
 

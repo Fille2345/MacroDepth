@@ -49,9 +49,8 @@ final class AppDependencies {
         return makeLive()
     }
 
-    /// Live graph: real persistence, permissions, configuration, hardware detection
-    /// and scanning. Analysis uses the mock service until `GeminiNutritionService`
-    /// (Phase 4) is added here.
+    /// Live graph: real persistence, permissions, configuration, hardware detection,
+    /// scanning and Gemini analysis.
     static func makeLive() -> AppDependencies {
         let persistence: SwiftDataPersistenceService
         var persistenceWarning: String?
@@ -63,16 +62,28 @@ final class AppDependencies {
         }
 
         let hardware = DeviceCapabilityProbe.currentHardware()
+        let configuration = AppConfiguration.load()
         return AppDependencies(
             mode: .live,
             hardwareCapabilities: hardware,
             scanner: makeScanner(for: hardware),
-            nutrition: MockNutritionService(),
+            nutrition: makeNutritionService(for: configuration),
             persistence: persistence,
             cameraPermissions: SystemCameraPermissionService(),
-            configuration: AppConfiguration.load(),
+            configuration: configuration,
             persistenceWarning: persistenceWarning
         )
+    }
+
+    /// Without a usable key the app keeps working on sample data. Settings shows
+    /// the configuration error and the review screen labels the results as samples.
+    static func makeNutritionService(
+        for configuration: Result<AppConfiguration, ConfigurationError>
+    ) -> any NutritionServiceProtocol {
+        switch configuration {
+        case .success(let configuration): GeminiNutritionService(configuration: configuration)
+        case .failure: MockNutritionService()
+        }
     }
 
     /// Real hardware (with or without LiDAR) uses ARKit. The Simulator has no camera,

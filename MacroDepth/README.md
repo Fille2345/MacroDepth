@@ -11,7 +11,15 @@ xcodegen generate
 open MacroDepth.xcodeproj
 ```
 
-The app builds and runs without a key. In that case Settings shows the configuration error, and the mock services keep working.
+The app builds and runs without a key. In that case Settings shows the configuration error, and scans use sample data, labelled as such on the review screen.
+
+To check your key and the request format against the real API, using a few tokens:
+
+```sh
+TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
+  -destination 'platform=iOS Simulator,name=<simulator>' \
+  -only-testing:MacroDepthTests/GeminiLiveTests
+```
 
 ## Layout
 

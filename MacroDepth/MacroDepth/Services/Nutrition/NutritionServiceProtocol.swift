@@ -13,9 +13,9 @@ import Foundation
 /// 3. `estimateNutrition` — per-100 g macros and a density suggestion per item,
 ///    or a photo-only gram estimate when no volume was measured.
 ///
-/// The live implementation (`GeminiNutritionService`, Phase 4) sits behind this
-/// protocol and talks to the network through a swappable API client, so a
-/// backend proxy can replace the direct Gemini call without touching callers.
+/// The live implementation (`GeminiNutritionService`) sits behind this protocol
+/// and talks to the network through a swappable `GeminiAPIClient`, so a backend
+/// proxy can replace the direct Gemini call without touching callers.
 protocol NutritionServiceProtocol: Sendable {
     func detectFoodItems(in images: [Data], userNotes: String?) async throws -> [DetectedFoodItem]
 

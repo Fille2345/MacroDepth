@@ -125,6 +125,13 @@ final class ScanViewModel {
         drafts.contains { $0.portion.source == .visualEstimate }
     }
 
+    /// Results come from the mock service, not from the user's photo.
+    var usesSampleAnalysis: Bool { nutrition is MockNutritionService }
+
+    /// Some detected items got no usable estimate, so the total is too low.
+    /// Removing a draft also removes its detection, so only those items differ.
+    var hasUnestimatedItems: Bool { detections.count > drafts.count }
+
     // MARK: Lifecycle
 
     /// Call from the view's `.task`. Runs until the view disappears, then stops the scanner.

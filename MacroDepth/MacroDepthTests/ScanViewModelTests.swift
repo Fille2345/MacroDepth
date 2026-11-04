@@ -52,8 +52,57 @@ private actor SpyNutritionService: NutritionServiceProtocol {
     }
 }
 
+/// Loses the first item's estimate, as when the model's values fail validation.
+private struct PartialNutritionService: NutritionServiceProtocol {
+    private let mock = MockNutritionService(latency: .zero)
+
+    func detectFoodItems(in images: [Data], userNotes: String?) async throws -> [DetectedFoodItem] {
+        try await mock.detectFoodItems(in: images, userNotes: userNotes)
+    }
+
+    func estimateNutrition(for queries: [NutritionQuery], images: [Data], userNotes: String?) async throws -> [NutritionEstimate] {
+        Array(try await mock.estimateNutrition(for: queries, images: images, userNotes: userNotes).dropFirst())
+    }
+}
+
 @MainActor
 struct ScanViewModelTests {
+    @Test func flagsAnItemWithoutAnEstimate() async throws {
+        let viewModel = makeViewModel(nutrition: PartialNutritionService(), persistence: try SwiftDataPersistenceService.makeInMemory())
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+
+        try await waitForPhase(.ready, in: viewModel)
+        viewModel.capturePrimaryPhoto()
+        try await waitForPhase(.awaitingSecondaryPhoto, in: viewModel)
+        viewModel.skipSecondaryPhoto()
+        viewModel.analyze()
+        try await waitForPhase(.review, in: viewModel)
+
+        #expect(viewModel.hasUnestimatedItems)
+        #expect(!viewModel.usesSampleAnalysis)
+    }
+
+    @Test func noWarningWhenEveryItemHasAnEstimateAndMockIsLabelled() async throws {
+        let viewModel = makeViewModel(nutrition: MockNutritionService(latency: .zero), persistence: try SwiftDataPersistenceService.makeInMemory())
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+
+        try await waitForPhase(.ready, in: viewModel)
+        viewModel.capturePrimaryPhoto()
+        try await waitForPhase(.awaitingSecondaryPhoto, in: viewModel)
+        viewModel.skipSecondaryPhoto()
+        viewModel.analyze()
+        try await waitForPhase(.review, in: viewModel)
+
+        #expect(!viewModel.hasUnestimatedItems)
+        #expect(viewModel.usesSampleAnalysis)
+
+        let draft = try #require(viewModel.drafts.first)
+        viewModel.removeDraft(id: draft.id)
+        #expect(!viewModel.hasUnestimatedItems)   // removing an item yourself isn't a missing estimate
+    }
+
     private func makeViewModel(
         scanner: any ARScannerServiceProtocol = StubScanner(),
         nutrition: any NutritionServiceProtocol,
