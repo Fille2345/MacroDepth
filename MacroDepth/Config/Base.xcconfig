@@ -1,0 +1,14 @@
+// Config/Base.xcconfig
+// Shared defaults. Values set in Secrets.xcconfig (git-ignored) override these.
+// Note: "//" starts a comment in .xcconfig files, so never put URLs here.
+
+MACRODEPTH_BUNDLE_IDENTIFIER = com.example.MacroDepth
+
+// Gemini model used for detection and nutrition. Overridable per developer.
+GEMINI_MODEL_ID = gemini-3.5-flash
+
+// Intentionally empty. Put the real key in Config/Secrets.xcconfig.
+GEMINI_API_KEY =
+
+// Optional include: the build still works (with mock services) when the file is absent.
+#include? "Secrets.xcconfig"

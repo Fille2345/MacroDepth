@@ -1,0 +1,2 @@
+// Config/Debug.xcconfig
+#include "Base.xcconfig"

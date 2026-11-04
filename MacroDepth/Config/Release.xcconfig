@@ -1,0 +1,3 @@
+// Config/Release.xcconfig
+// Before shipping, route Gemini calls through a backend proxy instead of a bundled key.
+#include "Base.xcconfig"
