@@ -71,6 +71,7 @@ final class AppDependencies {
             hardwareCapabilities: hardware,
             scanner: makeScanner(for: hardware),
             nutrition: makeNutritionService(for: configuration),
+            foodLookup: OpenFoodFactsService(),
             persistence: persistence,
             cameraPermissions: SystemCameraPermissionService(),
             configuration: configuration,

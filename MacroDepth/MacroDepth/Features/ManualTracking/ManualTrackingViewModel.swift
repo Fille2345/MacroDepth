@@ -38,9 +38,11 @@ final class ManualTrackingViewModel: Identifiable {
     var searchText = "" {
         didSet {
             guard searchText != oldValue else { return }
-            scheduleSearch()
+            if trimmedSearchText.isEmpty { clearSearch() }
         }
     }
+    /// What the current results are for. `nil` before the first search.
+    private(set) var searchedQuery: String?
     private(set) var searchResults: [FoodProduct] = []
     private(set) var isSearching = false
     private(set) var searchError: String?
@@ -59,7 +61,6 @@ final class ManualTrackingViewModel: Identifiable {
     @ObservationIgnored private let permissions: any CameraPermissionProviding
     @ObservationIgnored private let prepareCameraHandover: @MainActor () async -> Void
     @ObservationIgnored private let cameraExists: Bool
-    @ObservationIgnored private let searchDebounce: Duration
     @ObservationIgnored private var searchTask: Task<Void, Never>?
 
     init(
@@ -67,14 +68,12 @@ final class ManualTrackingViewModel: Identifiable {
         lookup: any FoodLookupServiceProtocol,
         permissions: any CameraPermissionProviding,
         cameraExists: Bool = AVCaptureDevice.default(for: .video) != nil,
-        searchDebounce: Duration = .milliseconds(300),
         prepareCameraHandover: @escaping @MainActor () async -> Void = {}
     ) {
         self.mode = mode
         self.lookup = lookup
         self.permissions = permissions
         self.cameraExists = cameraExists
-        self.searchDebounce = searchDebounce
         self.prepareCameraHandover = prepareCameraHandover
         usesSampleData = lookup is MockFoodLookupService
     }
@@ -133,26 +132,30 @@ final class ManualTrackingViewModel: Identifiable {
 
     // MARK: Search
 
-    private func scheduleSearch() {
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Searches when the user submits, never per keystroke: Open Food Facts allows 10 searches
+    /// a minute and says search-as-you-type gets clients blocked. Resubmitting an answered
+    /// query does nothing, so it doesn't use up that allowance.
+    func submitSearch() {
+        let query = trimmedSearchText
+        guard !query.isEmpty, query != searchedQuery || searchError != nil else { return }
         searchTask?.cancel()
         searchError = nil
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            searchResults = []
-            isSearching = false
-            return
-        }
         isSearching = true
-        searchTask = Task { [weak self, searchDebounce] in
-            // Wait for a pause in typing, rather than searching on every letter.
-            try? await Task.sleep(for: searchDebounce)
-            guard !Task.isCancelled else { return }
+        searchTask = Task { [weak self] in
             await self?.runSearch(query)
         }
     }
 
-    func retrySearch() {
-        scheduleSearch()
+    private func clearSearch() {
+        searchTask?.cancel()
+        searchResults = []
+        searchedQuery = nil
+        searchError = nil
+        isSearching = false
     }
 
     private func runSearch(_ query: String) async {
@@ -161,10 +164,12 @@ final class ManualTrackingViewModel: Identifiable {
             // A newer search has replaced this one, so its results are out of date.
             guard !Task.isCancelled else { return }
             searchResults = results
+            searchedQuery = query
             searchError = nil
         } catch {
             guard !Task.isCancelled, !(error is CancellationError) else { return }
             searchResults = []
+            searchedQuery = query
             searchError = error.localizedDescription
         }
         isSearching = false

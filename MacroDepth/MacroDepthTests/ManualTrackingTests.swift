@@ -74,7 +74,6 @@ struct ManualTrackingViewModelTests {
             lookup: lookup,
             permissions: permissions,
             cameraExists: cameraExists,
-            searchDebounce: .zero,
             prepareCameraHandover: prepareCameraHandover
         )
     }
@@ -88,27 +87,92 @@ struct ManualTrackingViewModelTests {
 
     // MARK: Search
 
-    @Test func searchingFillsResults() async throws {
-        let viewModel = make()
-        viewModel.searchText = "banana"
+    /// Counts searches, because Open Food Facts blocks clients that search too often.
+    private final class CountingLookup: FoodLookupServiceProtocol, @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [String] = []
+        var queries: [String] { lock.withLock { recorded } }
+
+        func product(forBarcode barcode: String) async throws -> FoodProduct? { nil }
+
+        func searchFoods(matching query: String) async throws -> [FoodProduct] {
+            lock.withLock { recorded.append(query) }
+            return try await MockFoodLookupService(latency: .zero).searchFoods(matching: query)
+        }
+    }
+
+    @Test func typingNeverSearchesUntilSubmitted() async throws {
+        let lookup = CountingLookup()
+        let viewModel = make(lookup: lookup)
+        for text in ["b", "ba", "ban", "bana", "banan", "banana"] {
+            viewModel.searchText = text
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(lookup.queries.isEmpty)
+        #expect(viewModel.searchedQuery == nil)
+
+        viewModel.submitSearch()
         try await wait { !viewModel.isSearching }
+        #expect(lookup.queries == ["banana"])
+        #expect(viewModel.searchedQuery == "banana")
         #expect(viewModel.searchResults.map(\.name) == ["Banana"])
     }
 
-    @Test func clearingTheFieldClearsResults() async throws {
+    @Test func resubmittingTheSameQueryDoesNotSpendARequest() async throws {
+        let lookup = CountingLookup()
+        let viewModel = make(lookup: lookup)
+        viewModel.searchText = "banana"
+        viewModel.submitSearch()
+        try await wait { !viewModel.isSearching }
+
+        viewModel.searchText = " banana "
+        viewModel.submitSearch()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(lookup.queries == ["banana"])
+    }
+
+    @Test func blankSubmitDoesNothing() async throws {
+        let lookup = CountingLookup()
+        let viewModel = make(lookup: lookup)
+        viewModel.searchText = "   "
+        viewModel.submitSearch()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(lookup.queries.isEmpty)
+        #expect(!viewModel.isSearching)
+    }
+
+    @Test func editingKeepsResultsUntilTheNextSearchAndClearingRemovesThem() async throws {
         let viewModel = make()
         viewModel.searchText = "banana"
+        viewModel.submitSearch()
         try await wait { !viewModel.searchResults.isEmpty }
+
+        viewModel.searchText = "banan"
+        #expect(viewModel.searchResults.map(\.name) == ["Banana"])
+
         viewModel.searchText = "  "
         #expect(viewModel.searchResults.isEmpty)
+        #expect(viewModel.searchedQuery == nil)
         #expect(!viewModel.isSearching)
+    }
+
+    @Test func noMatchesIsAnAnswerNotAnError() async throws {
+        let viewModel = make()
+        viewModel.searchText = "zzzz"
+        viewModel.submitSearch()
+        try await wait { !viewModel.isSearching }
+        #expect(viewModel.searchedQuery == "zzzz")
+        #expect(viewModel.searchResults.isEmpty)
+        #expect(viewModel.searchError == nil)
     }
 
     @Test func aSlowEarlierSearchCannotReplaceANewerOne() async throws {
         let viewModel = make(lookup: DelayedLookup(delays: ["apple": .milliseconds(150)]))
         viewModel.searchText = "apple"
+        viewModel.submitSearch()
         try await Task.sleep(for: .milliseconds(20))
         viewModel.searchText = "banana"
+        viewModel.submitSearch()
         try await wait { viewModel.searchResults.map(\.name) == ["Banana"] }
         try await Task.sleep(for: .milliseconds(200))
         #expect(viewModel.searchResults.map(\.name) == ["Banana"])
@@ -116,11 +180,16 @@ struct ManualTrackingViewModelTests {
     }
 
     @Test func searchFailureShowsAnErrorAndCanRetry() async throws {
-        let viewModel = make(lookup: MockFoodLookupService(behavior: .failure(.offline), latency: .zero))
-        viewModel.searchText = "banana"
-        try await wait { !viewModel.isSearching }
-        #expect(viewModel.searchError != nil)
-        #expect(viewModel.searchResults.isEmpty)
+        let failing = make(lookup: MockFoodLookupService(behavior: .failure(.offline), latency: .zero))
+        failing.searchText = "banana"
+        failing.submitSearch()
+        try await wait { !failing.isSearching }
+        #expect(failing.searchError != nil)
+        #expect(failing.searchResults.isEmpty)
+
+        // The same query can be resubmitted after a failure.
+        failing.submitSearch()
+        #expect(failing.isSearching)
     }
 
     // MARK: Barcode

@@ -29,4 +29,28 @@ enum FoodBarcode {
         }
         return sum.isMultiple(of: 10) ? digits : nil
     }
+
+    /// The 12-digit UPC-A form of an 8-digit UPC-E code, which databases list products
+    /// under. UPC-E drops zeros from UPC-A, and its check digit is the UPC-A one, so it
+    /// can't be checked until it's expanded. `nil` if it isn't valid UPC-E.
+    static func upcA(fromUPCE code: String) -> String? {
+        let digits = Array(code)
+        guard digits.count == 8, code.allSatisfy(\.isASCII), code.allSatisfy(\.isNumber) else { return nil }
+        let system = digits[0]
+        let body = Array(digits[1...6])
+        let check = digits[7]
+
+        let middle: [Character]
+        switch body[5] {
+        case "0", "1", "2":
+            middle = [body[0], body[1], body[5], "0", "0", "0", "0", body[2], body[3], body[4]]
+        case "3":
+            middle = [body[0], body[1], body[2], "0", "0", "0", "0", "0", body[3], body[4]]
+        case "4":
+            middle = [body[0], body[1], body[2], body[3], "0", "0", "0", "0", "0", body[4]]
+        default:
+            middle = [body[0], body[1], body[2], body[3], body[4], "0", "0", "0", "0", body[5]]
+        }
+        return normalized(String([system] + middle + [check]))
+    }
 }

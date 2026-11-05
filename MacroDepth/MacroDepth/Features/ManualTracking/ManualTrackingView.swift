@@ -29,14 +29,23 @@ struct ManualTrackingView: View {
     }
 }
 
-private struct SampleDataNotice: View {
+/// Says where the values came from. Open Food Facts' licence requires crediting it.
+private struct FoodDataNotice: View {
+    let usesSampleData: Bool
+
     var body: some View {
-        Label(
-            "Sample data, not a real food database yet. Check values against the label before saving.",
-            systemImage: "exclamationmark.triangle.fill"
-        )
-        .font(.footnote)
-        .foregroundStyle(.orange)
+        if usesSampleData {
+            Label(
+                "Sample data, not a real food database. Check values against the label before saving.",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.footnote)
+            .foregroundStyle(.orange)
+        } else {
+            Text("Data from Open Food Facts (ODbL), written by volunteers. Check it against the label.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -50,9 +59,7 @@ private struct BarcodeScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if viewModel.usesSampleData {
-                    SampleDataNotice()
-                }
+                FoodDataNotice(usesSampleData: viewModel.usesSampleData)
                 cameraArea
                 lookupStatus
                 typedEntry
@@ -118,7 +125,7 @@ private struct BarcodeScreen: View {
         switch viewModel.lookupState {
         case .idle:
             if viewModel.cameraState == .ready {
-                Text("Hold the barcode inside the frame.")
+                Text("Hold the barcode about 20 cm from the camera, inside the frame.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -176,16 +183,14 @@ private struct FoodSearchScreen: View {
 
     var body: some View {
         List {
-            if viewModel.usesSampleData {
-                SampleDataNotice()
-            }
+            FoodDataNotice(usesSampleData: viewModel.usesSampleData)
 
             if let error = viewModel.searchError {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(error)
                         .font(.subheadline)
                         .foregroundStyle(.red)
-                    Button("Try Again") { viewModel.retrySearch() }
+                    Button("Try Again") { viewModel.submitSearch() }
                         .buttonStyle(.bordered)
                 }
             }
@@ -200,16 +205,18 @@ private struct FoodSearchScreen: View {
             }
         }
         .overlay {
-            if viewModel.isSearching && viewModel.searchResults.isEmpty {
+            if viewModel.isSearching {
                 ProgressView("Searching…")
-            } else if viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            } else if let query = viewModel.searchedQuery {
+                if viewModel.searchResults.isEmpty && viewModel.searchError == nil {
+                    ContentUnavailableView.search(text: query)
+                }
+            } else {
                 ContentUnavailableView(
                     "Search for a food",
                     systemImage: "magnifyingglass",
-                    description: Text("Try \"chicken\" or \"oats\".")
+                    description: Text("Type a food or brand, then tap Search on the keyboard.")
                 )
-            } else if viewModel.searchResults.isEmpty && viewModel.searchError == nil {
-                ContentUnavailableView.search(text: viewModel.searchText)
             }
         }
         .searchable(
@@ -217,6 +224,7 @@ private struct FoodSearchScreen: View {
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "Search foods"
         )
+        .onSubmit(of: .search) { viewModel.submitSearch() }
         .navigationTitle("Search Food")
     }
 }
@@ -229,6 +237,11 @@ private struct FoodResultRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(product.name)
                     .font(.body)
+                if let brand = product.brand {
+                    Text(brand)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text("Per 100 g: \(NutritionFormat.grams(product.macrosPer100Grams.proteinGrams)) protein")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -303,9 +316,7 @@ private struct FoodWeightScreen: View {
                 .tint(.brandGreen)
                 .disabled(viewModel.parsedGrams == nil)
 
-                if viewModel.usesSampleData {
-                    SampleDataNotice()
-                }
+                FoodDataNotice(usesSampleData: viewModel.usesSampleData)
             }
             .padding()
         }

@@ -98,19 +98,63 @@ final class BarcodeCameraController: UIViewController, AVCaptureMetadataOutputOb
 
     private func configureSession() -> Bool {
         let session = handle.session
-        guard let device = AVCaptureDevice.default(for: .video),
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: device),
               session.canAddInput(input) else { return false }
         session.addInput(input)
+        configureFocus(of: device)
 
         let output = AVCaptureMetadataOutput()
         guard session.canAddOutput(output) else { return false }
         session.addOutput(output)
         output.setMetadataObjectsDelegate(self, queue: .main)
-        // UPC-A is reported as EAN-13 with a leading zero.
+        // UPC-A is reported as EAN-13 with a leading zero, and UPC-E is expanded on detection.
         let wanted: [AVMetadataObject.ObjectType] = [.ean13, .ean8, .upce]
         output.metadataObjectTypes = wanted.filter(output.availableMetadataObjectTypes.contains)
         return !output.metadataObjectTypes.isEmpty
+    }
+
+    /// Keeps a barcode sharp up close. Failing to set this only makes scanning harder,
+    /// so it never stops the camera from starting.
+    private func configureFocus(of device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+        } catch {
+            return
+        }
+        defer { device.unlockForConfiguration() }
+
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            device.focusMode = .continuousAutoFocus
+        }
+        if device.isAutoFocusRangeRestrictionSupported {
+            device.autoFocusRangeRestriction = .near
+        }
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            device.exposureMode = .continuousAutoExposure
+        }
+        device.videoZoomFactor = min(
+            Self.recommendedZoom(
+                minimumFocusDistanceMillimeters: device.minimumFocusDistance,
+                fieldOfViewDegrees: device.activeFormat.videoFieldOfView
+            ),
+            device.activeFormat.videoMaxZoomFactor
+        )
+    }
+
+    /// The zoom that lets a barcode fill the frame from beyond the closest distance the camera
+    /// can focus at. Main cameras on LiDAR iPhones can't focus at around 10 cm, where a barcode
+    /// would otherwise fill the frame, so without zoom people hold it too close and it stays
+    /// blurry. Based on Apple's approach for scanning codes.
+    nonisolated static func recommendedZoom(minimumFocusDistanceMillimeters: Int, fieldOfViewDegrees: Float) -> CGFloat {
+        // A typical retail barcode is about 35 mm wide, and should fill 60% of the frame.
+        let fillWidthMillimeters = 35.0 / 0.6
+        let maximumZoom = 3.0
+        guard minimumFocusDistanceMillimeters > 0, fieldOfViewDegrees > 0 else { return 1 }
+        let halfAngle = Double(fieldOfViewDegrees) / 2 * .pi / 180
+        let distanceThatFills = fillWidthMillimeters / tan(halfAngle)
+        return CGFloat(min(max(Double(minimumFocusDistanceMillimeters) / distanceThatFills, 1), maximumZoom))
     }
 
     nonisolated func metadataOutput(
@@ -119,7 +163,11 @@ final class BarcodeCameraController: UIViewController, AVCaptureMetadataOutputOb
         from connection: AVCaptureConnection
     ) {
         let code = metadataObjects
-            .compactMap { ($0 as? AVMetadataMachineReadableCodeObject)?.stringValue }
+            .compactMap { $0 as? AVMetadataMachineReadableCodeObject }
+            .compactMap { object -> String? in
+                guard let value = object.stringValue else { return nil }
+                return object.type == .upce ? FoodBarcode.upcA(fromUPCE: value) : value
+            }
             .first
         guard let code else { return }
         // The delegate queue is `.main`.

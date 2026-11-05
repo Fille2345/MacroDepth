@@ -31,11 +31,13 @@ struct SettingsView: View {
                     Text("Photos, depth-derived volumes and any notes you add are sent to Google's Gemini API for analysis.")
                 }
 
-                if viewModel.usesSampleFoodData {
-                    Section {
-                        LabeledContent("Food database", value: "Sample data")
-                    } footer: {
-                        Text("Barcode and food search results are samples until a real database is connected.")
+                Section {
+                    LabeledContent("Food database", value: viewModel.usesSampleFoodData ? "Sample data" : "Open Food Facts")
+                } footer: {
+                    if viewModel.usesSampleFoodData {
+                        Text("Barcode and food search results are samples.")
+                    } else {
+                        Text("Barcodes and food searches you enter are sent to Open Food Facts. Its data is available under the Open Database License (ODbL).")
                     }
                 }
 
