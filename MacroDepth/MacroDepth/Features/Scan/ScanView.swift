@@ -60,8 +60,10 @@ struct ScanView: View {
             submissionControls
         case .detecting:
             ProgressRow(title: "Identifying food…", onCancel: { viewModel.cancelAnalysis() })
+        case .measuring:
+            ProgressRow(title: "Measuring portions…", onCancel: { viewModel.cancelAnalysis() })
         case .estimating:
-            ProgressRow(title: "Estimating portions and nutrition…", onCancel: { viewModel.cancelAnalysis() })
+            ProgressRow(title: "Estimating nutrition…", onCancel: { viewModel.cancelAnalysis() })
         case .review, .saving:
             reviewContent
         case .saved:

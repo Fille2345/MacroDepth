@@ -423,6 +423,94 @@ struct VolumeCalculatorServiceTests {
         }
     }
 
+    // MARK: No surface to measure from
+
+    /// A portrait-style scene: floor at 1.57 m, a bed at 0.8–1.1 m, a hand at 0.22–0.30 m
+    /// and a banana at 0.19–0.23 m. It's the capture that once read 138 cm tall.
+    private func handHeldBanana(floorOnlyAround: Bool = false, bananaHeightAboveFloor: Float? = nil) throws -> DepthMap {
+        let width = MockDepthScene.width
+        let height = MockDepthScene.height
+        var depths = [Float](repeating: 1.57, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                let index = row * width + column
+                if !floorOnlyAround {
+                    if column > 150 { depths[index] = 0.8 + Float(column - 150) * 0.003 }
+                    if row > 110, column > 70, column < 190 { depths[index] = 0.22 + Float(row - 110) * 0.001 }
+                }
+                if row > 70, row < 115, column > 80, column < 180 {
+                    let surface = bananaHeightAboveFloor.map { 1.57 - $0 } ?? 0.19
+                    depths[index] = surface + abs(Float(row - 92)) * 0.002
+                }
+            }
+        }
+        return try #require(DepthMap(width: width, height: height, depthMeters: depths))
+    }
+
+    private let bananaBox = NormalizedBoundingBox(minX: 80.0 / 256, minY: 70.0 / 192, maxX: 180.0 / 256, maxY: 115.0 / 192)!
+
+    @Test func handAndFloorInTheRingAreRejected() throws {
+        let map = try handHeldBanana()
+        #expect(throws: VolumeCalculationError.noReferenceSurface) {
+            try service.estimateVolume(in: bananaBox, shape: .halfEllipsoid, depthMap: map, intrinsics: MockDepthScene.intrinsics)
+        }
+    }
+
+    /// The ring's variance is tiny here, so the height check has to catch it.
+    @Test func itemFarAboveAFlatFloorIsRejected() throws {
+        let map = try handHeldBanana(floorOnlyAround: true)
+        #expect(throws: VolumeCalculationError.noReferenceSurface) {
+            try service.estimateVolume(in: bananaBox, shape: .halfEllipsoid, depthMap: map, intrinsics: MockDepthScene.intrinsics)
+        }
+    }
+
+    /// Low enough to be believable food, but its edges never reach the surface.
+    @Test(arguments: [FoodShape.halfEllipsoid, .slab])
+    func itemFloatingJustAboveASurfaceIsRejected(shape: FoodShape) throws {
+        let map = try handHeldBanana(floorOnlyAround: true, bananaHeightAboveFloor: 0.25)
+        #expect(throws: VolumeCalculationError.noReferenceSurface) {
+            try service.estimateVolume(in: bananaBox, shape: shape, depthMap: map, intrinsics: MockDepthScene.intrinsics)
+        }
+    }
+
+    /// Seen from straight above, a glass's top floats over the table, and that's still valid.
+    @Test func glassSeenFromAboveIsNotTreatedAsFloating() throws {
+        let scene = MockDepthScene(surfaceDistance: 0.45, solids: [.cylinder(center: center, radius: 0.035, height: 0.15)])
+        let box = try scene.box(center: center, radiusX: 0.035, radiusY: 0.035, height: 0.15)
+        let result = try measure(scene, box: box, shape: .cylinder)
+        expectClose(result.heightCentimeters, 15, within: 0.02)
+    }
+
+    @Test func tiltedPlateWithANeighborStillPassesTheVarianceCheck() throws {
+        let scene = MockDepthScene(tiltDegrees: 35, solids: [
+            .halfSphere(center: center, radius: 0.05),
+            .halfSphere(center: SIMD2(0.075, 0), radius: 0.025),
+        ])
+        let box = try scene.box(center: center, radiusX: 0.05, radiusY: 0.05, height: 0.05, padding: 0)
+        let result = try measure(scene, box: box, shape: .halfEllipsoid)
+        #expect(result.measurement.cubicCentimeters > 150 && result.measurement.cubicCentimeters < 320)
+    }
+
+    @Test func planeFitStopsAtItsTimeLimit() throws {
+        let scene = MockDepthScene(solids: [.halfSphere(center: center, radius: 0.05)])
+        let box = try scene.box(center: center, radiusX: 0.05, radiusY: 0.05)
+        #expect(throws: VolumeCalculationError.planeFitTimedOut) {
+            try VolumeCalculatorService(planeFitTimeLimit: .zero).estimateVolume(
+                in: box,
+                shape: .halfEllipsoid,
+                depthMap: try scene.makeDepthMap(),
+                intrinsics: MockDepthScene.intrinsics
+            )
+        }
+    }
+
+    @Test func thinningALargeRingKeepsTheResult() throws {
+        // A big box has a ring far larger than the fit's sample limit.
+        let scene = MockDepthScene(surfaceDistance: 0.6, solids: [.halfSphere(center: center, radius: 0.05)])
+        let result = try measure(scene, box: try scene.box(center: center, radiusX: 0.05, radiusY: 0.05, padding: 0.14), shape: .halfEllipsoid)
+        expectClose(result.measurement.cubicCentimeters, domeVolume, within: 0.08)
+    }
+
     // MARK: Output
 
     @Test func reportsTheMethodSamplesAndUncertainty() throws {

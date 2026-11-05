@@ -37,7 +37,7 @@ TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
 - Carbohydrates are *available* carbs (fibre excluded), as on EU labels. Fibre counts 2 kcal/g in the Atwater check.
 - Bounding boxes are normalized, top-left origin. Gemini's `box_2d` (`[ymin, xmin, ymax, xmax]`, 0–1000) is converted at the boundary.
 - Grams are always computed on device (`PortionCalculator`). Gemini only suggests density, and that value is clamped to per-category bounds.
-- `VolumeCalculatorService` measures each item's footprint and height above a plane fitted to the plate, then applies its category's `FoodShape`. Any item it can't measure falls back to Gemini's photo estimate on its own. One view can't see a dome's far side, so piles read low when the phone is tilted.
+- `VolumeCalculatorService` measures each item's footprint and height above a plane fitted to the plate, then applies its category's `FoodShape`. Any item it can't measure falls back to Gemini's photo estimate on its own. One view can't see a dome's far side, so piles read low when the phone is tilted. It needs a surface the food rests on, so food held in a hand falls back too.
 - ARKit delivers landscape sensor frames. `ARFrameConverter` rotates the image, depth, confidence, intrinsics and pose together to upright portrait, so they stay aligned. Never rotate just one of them.
 - Daily targets come from `UserProfileDraft.targets` (Mifflin-St Jeor, then the goal's adjustment). Calculated and manual targets are both clamped to `TargetLimits`.
 - View models learn about new data from `PersistenceServiceProtocol.changes()` rather than `@Query`, so SwiftData stays behind the service.

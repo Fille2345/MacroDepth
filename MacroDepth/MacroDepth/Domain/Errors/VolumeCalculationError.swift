@@ -9,8 +9,10 @@ enum VolumeCalculationError: Error, Equatable, Sendable {
     case insufficientDepthData
     /// The intrinsics can't be mapped onto the depth map.
     case invalidIntrinsics
-    /// No plate or table could be found around the bounding box.
+    /// No plate or table that the item rests on could be found around the bounding box.
     case noReferenceSurface
+    /// Fitting the surface ran past its time limit.
+    case planeFitTimedOut
     /// Nothing inside the box rises far enough above the surface to measure.
     case noFoodAboveSurface
 }

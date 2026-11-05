@@ -116,8 +116,82 @@ private struct NoDepthScanner: ARScannerServiceProtocol {
     }
 }
 
+/// Every box sees near and far depth at once, like food held over a floor.
+private struct HandHeldScanner: ARScannerServiceProtocol {
+    let capabilities = ScannerCapabilities.simulated
+    private let broadcaster = AsyncBroadcaster<ScannerState>(initialValue: .running(.normal))
+
+    func stateUpdates() -> AsyncStream<ScannerState> { broadcaster.stream() }
+    func start() async throws {}
+    func stop() async {}
+    func captureSecondaryImage() async throws -> Data { StubScanner.secondaryImage }
+
+    func capture() async throws -> DepthCapture {
+        let sample = try SampleScene.makeCapture(includeDepth: false)
+        let width = SampleScene.depthWidth
+        let height = SampleScene.depthHeight
+        var depths = [Float](repeating: 1.57, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width where (column / 12 + row / 12).isMultiple(of: 2) {
+                depths[row * width + column] = 0.2
+            }
+        }
+        return DepthCapture(
+            imageJPEGData: sample.imageJPEGData,
+            imagePixelSize: sample.imagePixelSize,
+            depthMap: DepthMap(width: width, height: height, depthMeters: depths),
+            intrinsics: sample.intrinsics,
+            cameraPose: sample.cameraPose
+        )
+    }
+}
+
+/// Records whether measuring happens away from the main thread.
+private final class ThreadRecordingCalculator: VolumeCalculatorServiceProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var ranOnMainThread = false
+
+    var didRunOnMainThread: Bool { lock.withLock { ranOnMainThread } }
+
+    func estimateVolume(in box: NormalizedBoundingBox, shape: FoodShape, depthMap: DepthMap, intrinsics: CameraIntrinsics) throws -> FoodVolumeEstimate {
+        let isMain = Thread.isMainThread
+        lock.withLock { ranOnMainThread = ranOnMainThread || isMain }
+        return try VolumeCalculatorService().estimateVolume(in: box, shape: shape, depthMap: depthMap, intrinsics: intrinsics)
+    }
+}
+
 @MainActor
 struct ScanViewModelTests {
+    @Test func foodHeldOverAFloorFallsBackToPhotoEstimates() async throws {
+        let spy = SpyNutritionService()
+        let viewModel = makeViewModel(
+            scanner: HandHeldScanner(),
+            nutrition: spy,
+            persistence: try SwiftDataPersistenceService.makeInMemory()
+        )
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+        try await runToReview(viewModel)
+
+        #expect(await spy.estimationQueries.allSatisfy { $0.measuredVolume == nil })
+        #expect(!viewModel.drafts.isEmpty)
+        #expect(viewModel.drafts.allSatisfy { $0.portion.source == .visualEstimate && $0.measuredSize == nil })
+        #expect(viewModel.drafts.allSatisfy { $0.portion.grams < 1_000 })
+    }
+
+    @Test func measuringStaysOffTheMainThread() async throws {
+        let calculator = ThreadRecordingCalculator()
+        let viewModel = makeViewModel(
+            nutrition: MockNutritionService(latency: .zero),
+            persistence: try SwiftDataPersistenceService.makeInMemory(),
+            volumeCalculator: calculator
+        )
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+        try await runToReview(viewModel)
+        #expect(!calculator.didRunOnMainThread)
+    }
+
     private func runToReview(_ viewModel: ScanViewModel) async throws {
         try await waitForPhase(.ready, in: viewModel)
         viewModel.capturePrimaryPhoto()
@@ -168,7 +242,7 @@ struct ScanViewModelTests {
         #expect(chicken.measuredSize?.shape == .slab)
     }
 
-    @Test(arguments: [VolumeCalculationError.insufficientDepthData, .invalidIntrinsics, .noReferenceSurface, .noFoodAboveSurface])
+    @Test(arguments: [VolumeCalculationError.insufficientDepthData, .invalidIntrinsics, .noReferenceSurface, .planeFitTimedOut, .noFoodAboveSurface])
     func oneUnmeasurableItemFallsBackAloneToAPhotoEstimate(failure: VolumeCalculationError) async throws {
         let failing = try #require(SampleScene.foods.first)
         let spy = SpyNutritionService()

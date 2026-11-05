@@ -22,6 +22,7 @@ final class ScanViewModel {
         /// All photos are in. The user can add notes before submitting.
         case readyToAnalyze
         case detecting
+        case measuring
         case estimating
         case review
         case saving
@@ -30,7 +31,7 @@ final class ScanViewModel {
 
         var isAnalyzing: Bool {
             switch self {
-            case .capturing, .capturingSecondaryPhoto, .detecting, .estimating: true
+            case .capturing, .capturingSecondaryPhoto, .detecting, .measuring, .estimating: true
             default: false
             }
         }
@@ -157,7 +158,7 @@ final class ScanViewModel {
     /// its notes, so changing them would mislabel it; the recipe waits for the next scan.
     func prefillNotes(_ notes: String) {
         switch phase {
-        case .detecting, .estimating, .review, .saving:
+        case .detecting, .measuring, .estimating, .review, .saving:
             queuedNotes = notes
         case .saved:
             queuedNotes = notes
@@ -357,15 +358,22 @@ final class ScanViewModel {
             guard !detections.isEmpty else { throw NutritionServiceError.noFoodDetected }
             self.detections = detections
 
-            phase = .estimating
+            phase = .measuring
+            let clock = ContinuousClock()
+            let measurementStart = clock.now
             let measuredSizes = await Self.measureVolumes(of: detections, in: capture, using: volumeCalculator)
             try Task.checkCancellation()
+            Self.logger.notice("Measured \(measuredSizes.count, privacy: .public) of \(detections.count, privacy: .public) items in \(clock.now - measurementStart, privacy: .public)")
+
+            phase = .estimating
             let volumes = measuredSizes.mapValues(\.measurement)
             let queries = detections.map {
                 NutritionQuery(id: $0.id, label: $0.label, category: $0.category, measuredVolume: volumes[$0.id])
             }
+            let nutritionStart = clock.now
             let estimates = try await nutrition.estimateNutrition(for: queries, images: images, userNotes: notes)
             try Task.checkCancellation()
+            Self.logger.notice("Nutrition estimated in \(clock.now - nutritionStart, privacy: .public)")
 
             let drafts = MealDraftBuilder.makeItems(
                 detections: detections,

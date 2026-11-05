@@ -84,6 +84,10 @@ protocol VolumeCalculatorServiceProtocol: Sendable {
 ///    caught in a loose box.
 /// 4. Apply `V = volumeFactor × footprint area × height`.
 ///
+/// A plate scan needs a surface the item rests on. Food held in a hand has none, so
+/// a scene is rejected when the ring isn't one surface, or when the item is too tall
+/// for food or floats above the surface. It then falls back to a photo estimate.
+///
 /// Using the measured footprint rather than the box's width and height means a loose
 /// box or a diagonal item doesn't inflate the volume. The footprint is the outline of
 /// the item's 3D edge points on the plane, not a sum of per-pixel areas: on a dome's
@@ -107,6 +111,17 @@ struct VolumeCalculatorService: VolumeCalculatorServiceProtocol {
     /// A steeper "surface" is more likely a wall or the side of a bowl than a plate.
     static let maximumPlaneTiltDegrees = 45.0
     static let planeSearchTrials = 128
+    /// A larger ring is thinned evenly. It's still plenty for a plane, and bounds the search's work.
+    static let maximumRingSamplesForFit = 1_500
+    /// Scatter of the ring around its best-fit plane, in m². This is 5 cm one-sigma: well
+    /// above a plate with neighboring food, far below a hand against a floor. It's measured
+    /// around a plane rather than as raw depth variance, so a tilted phone isn't penalized.
+    static let maximumRingVariance = 0.0025
+    /// A deeper "item" means the surface found is a floor or bed, not what the food rests on.
+    static let maximumFoodHeightMeters = 0.30
+    /// A resting item's visible edge comes down to the surface. Otherwise it's in the air.
+    /// Doesn't apply to cylinders: from above, only a glass's raised top may be visible.
+    static let maximumGapBelowFoodMeters = 0.05
     /// Anything lower than this can't be told apart from sensor noise.
     static let minimumFoodHeightMeters = 0.005
     static let minimumFoodSamples = 12
@@ -114,6 +129,12 @@ struct VolumeCalculatorService: VolumeCalculatorServiceProtocol {
     static let heightPercentile = 0.98
     /// Assumed one-sigma LiDAR depth noise at plate distance.
     static let depthNoiseMeters = 0.003
+
+    private let planeFitTimeLimit: Duration
+
+    init(planeFitTimeLimit: Duration = .milliseconds(100)) {
+        self.planeFitTimeLimit = planeFitTimeLimit
+    }
 
     func estimateVolume(
         in box: NormalizedBoundingBox,
@@ -133,7 +154,7 @@ struct VolumeCalculatorService: VolumeCalculatorServiceProtocol {
         }
 
         let ring = Self.ringSamples(around: ranges, depthMap: depthMap, camera: camera)
-        let plane = try Self.fitReferencePlane(to: ring)
+        let plane = try Self.fitReferencePlane(to: ring, timeLimit: planeFitTimeLimit)
 
         let food = Self.largestConnectedFood(in: boxSamples, plane: plane)
         guard food.count >= Self.minimumFoodSamples else {
@@ -141,7 +162,12 @@ struct VolumeCalculatorService: VolumeCalculatorServiceProtocol {
         }
 
         let footprint = Self.footprint(of: food, on: plane, camera: camera)
-        let height = Self.percentile(Self.heightPercentile, of: food.map { plane.height(of: $0.position) })
+        let heights = food.map { plane.height(of: $0.position) }
+        let height = Self.percentile(Self.heightPercentile, of: heights)
+        guard height <= Self.maximumFoodHeightMeters,
+              shape == .cylinder || (heights.min() ?? 0) <= Self.maximumGapBelowFoodMeters else {
+            throw VolumeCalculationError.noReferenceSurface
+        }
 
         let cubicMeters = shape.volumeFactor * footprint.area * height
         let cubicCentimeters = cubicMeters * 1_000_000
@@ -248,11 +274,20 @@ struct VolumeCalculatorService: VolumeCalculatorServiceProtocol {
 
     /// Finds the plane most ring samples agree on, then refines it with least squares.
     /// Picking by agreement means neighboring food in the ring can't pull the plane up.
-    private static func fitReferencePlane(to ring: [Sample]) throws -> Plane {
+    private static func fitReferencePlane(to ring: [Sample], timeLimit: Duration) throws -> Plane {
         guard ring.count >= minimumRingSamples else {
             throw VolumeCalculationError.noReferenceSurface
         }
-        let points = ring.map(\.position)
+        let stride = max(1, ring.count / maximumRingSamplesForFit)
+        let points = Swift.stride(from: 0, to: ring.count, by: stride).map { ring[$0].position }
+
+        // One pass over the ring, so a scene that isn't one surface is rejected before any search.
+        guard let overall = leastSquaresPlane(through: points),
+              overall.residual * overall.residual <= maximumRingVariance else {
+            throw VolumeCalculationError.noReferenceSurface
+        }
+
+        let deadline = ContinuousClock.now + timeLimit
         let isOnPlane = { (plane: Plane, point: SIMD3<Double>) in
             abs(plane.height(of: point)) <= planeInlierThresholdMeters
         }
@@ -262,6 +297,9 @@ struct VolumeCalculatorService: VolumeCalculatorServiceProtocol {
         var bestPlane: Plane?
         var bestCount = 0
         for _ in 0..<planeSearchTrials {
+            guard ContinuousClock.now < deadline else {
+                throw VolumeCalculationError.planeFitTimedOut
+            }
             let candidate = plane(
                 through: points[Int.random(in: points.indices, using: &generator)],
                 points[Int.random(in: points.indices, using: &generator)],
