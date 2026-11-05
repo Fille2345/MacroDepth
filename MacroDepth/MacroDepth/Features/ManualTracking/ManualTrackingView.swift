@@ -32,9 +32,14 @@ struct ManualTrackingView: View {
 /// Says where the values came from. Open Food Facts' licence requires crediting it.
 private struct FoodDataNotice: View {
     let usesSampleData: Bool
+    var isGeneric = false
 
     var body: some View {
-        if usesSampleData {
+        if isGeneric {
+            Text("Typical values from USDA FoodData Central. Individual foods vary.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if usesSampleData {
             Label(
                 "Sample data, not a real food database. Check values against the label before saving.",
                 systemImage: "exclamationmark.triangle.fill"
@@ -183,39 +188,35 @@ private struct FoodSearchScreen: View {
 
     var body: some View {
         List {
-            FoodDataNotice(usesSampleData: viewModel.usesSampleData)
-
-            if let error = viewModel.searchError {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                    Button("Try Again") { viewModel.submitSearch() }
-                        .buttonStyle(.bordered)
+            let genericResults = viewModel.genericResults
+            if !genericResults.isEmpty {
+                Section {
+                    ForEach(genericResults) { product in
+                        resultButton(product)
+                    }
+                } header: {
+                    Text("Whole Foods")
+                } footer: {
+                    FoodDataNotice(usesSampleData: false, isGeneric: true)
                 }
             }
 
-            ForEach(viewModel.searchResults) { product in
-                Button {
-                    viewModel.selectedProduct = product
-                } label: {
-                    FoodResultRow(product: product)
+            if viewModel.hasSearchText {
+                Section {
+                    packagedProducts
+                } header: {
+                    Text("Packaged Products")
+                } footer: {
+                    FoodDataNotice(usesSampleData: viewModel.usesSampleData)
                 }
-                .buttonStyle(.plain)
             }
         }
         .overlay {
-            if viewModel.isSearching {
-                ProgressView("Searching…")
-            } else if let query = viewModel.searchedQuery {
-                if viewModel.searchResults.isEmpty && viewModel.searchError == nil {
-                    ContentUnavailableView.search(text: query)
-                }
-            } else {
+            if !viewModel.hasSearchText {
                 ContentUnavailableView(
                     "Search for a food",
                     systemImage: "magnifyingglass",
-                    description: Text("Type a food or brand, then tap Search on the keyboard.")
+                    description: Text("Whole foods appear as you type, in English or Swedish. Tap Search on the keyboard to include packaged products.")
                 )
             }
         }
@@ -227,6 +228,42 @@ private struct FoodSearchScreen: View {
         .onSubmit(of: .search) { viewModel.submitSearch() }
         .navigationTitle("Search Food")
     }
+
+    @ViewBuilder
+    private var packagedProducts: some View {
+        if viewModel.isSearching {
+            ProgressRow(title: "Searching Open Food Facts…")
+        } else if let error = viewModel.searchError {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+                Button("Try Again") { viewModel.submitSearch() }
+                    .buttonStyle(.bordered)
+            }
+        } else if !viewModel.searchResults.isEmpty {
+            ForEach(viewModel.searchResults) { product in
+                resultButton(product)
+            }
+        } else if viewModel.hasSearchedCurrentText {
+            Text("No packaged products found.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        } else {
+            Text("Tap Search on the keyboard to look for packaged products.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func resultButton(_ product: FoodProduct) -> some View {
+        Button {
+            viewModel.selectedProduct = product
+        } label: {
+            FoodResultRow(product: product)
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct FoodResultRow: View {
@@ -237,7 +274,11 @@ private struct FoodResultRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(product.name)
                     .font(.body)
-                if let brand = product.brand {
+                if product.isGeneric {
+                    Text("Whole food")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.brandGreen)
+                } else if let brand = product.brand {
                     Text(brand)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -316,7 +357,7 @@ private struct FoodWeightScreen: View {
                 .tint(.brandGreen)
                 .disabled(viewModel.parsedGrams == nil)
 
-                FoodDataNotice(usesSampleData: viewModel.usesSampleData)
+                FoodDataNotice(usesSampleData: viewModel.usesSampleData, isGeneric: product.isGeneric)
             }
             .padding()
         }

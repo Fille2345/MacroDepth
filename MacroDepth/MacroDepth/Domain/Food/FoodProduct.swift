@@ -12,6 +12,8 @@ struct FoodProduct: Sendable, Hashable, Identifiable {
     /// The weight to suggest first. The user can change it.
     let typicalServingGrams: Double
     var barcode: String? = nil
+    /// A typical whole food from `GenericFoodCatalog`, not a specific packaged product.
+    var isGeneric = false
 }
 
 /// Retail food barcodes: EAN-8, UPC-A and EAN-13.

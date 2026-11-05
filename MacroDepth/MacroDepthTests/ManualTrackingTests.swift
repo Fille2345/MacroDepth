@@ -101,6 +101,58 @@ struct ManualTrackingViewModelTests {
         }
     }
 
+    @Test func wholeFoodsFollowTypingWithoutAnyRequest() async throws {
+        let lookup = CountingLookup()
+        let viewModel = make(lookup: lookup)
+        #expect(viewModel.genericResults.isEmpty)
+
+        viewModel.searchText = "ban"
+        #expect(viewModel.genericResults.first?.id == "generic-banana")
+        viewModel.searchText = "banan"
+        #expect(viewModel.genericResults.first?.id == "generic-banana")
+
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(lookup.queries.isEmpty)
+        #expect(!viewModel.hasSearchedCurrentText)
+    }
+
+    @Test func wholeFoodsAndDatabaseResultsStaySeparate() async throws {
+        let viewModel = make()
+        viewModel.searchText = "banana"
+        viewModel.submitSearch()
+        try await wait { !viewModel.isSearching }
+
+        #expect(viewModel.genericResults.map(\.id) == ["generic-banana"])
+        #expect(viewModel.genericResults.allSatisfy { $0.isGeneric })
+        #expect(viewModel.searchResults.map(\.name) == ["Banana"])
+        #expect(viewModel.searchResults.allSatisfy { !$0.isGeneric })
+        #expect(viewModel.hasSearchedCurrentText)
+    }
+
+    @Test func aFailedDatabaseSearchKeepsTheWholeFoods() async throws {
+        let viewModel = make(lookup: MockFoodLookupService(behavior: .failure(.rateLimited), latency: .zero))
+        viewModel.searchText = "kyckling"
+        viewModel.submitSearch()
+        try await wait { !viewModel.isSearching }
+
+        #expect(viewModel.searchError?.contains("Wait a minute") == true)
+        #expect(viewModel.searchResults.isEmpty)
+        #expect(!viewModel.genericResults.isEmpty)
+    }
+
+    @Test func wholeFoodBecomesADraftWithItsOwnServing() throws {
+        let viewModel = make()
+        viewModel.searchText = "ägg"
+        let egg = try #require(viewModel.genericResults.first)
+        viewModel.selectedProduct = egg
+        #expect(viewModel.gramsText == "55")
+
+        let draft = try #require(viewModel.makeDraft())
+        #expect(draft.category == .egg)
+        #expect(draft.portion.source == .manualEntry)
+        #expect(draft.macrosPer100Grams == egg.macrosPer100Grams)
+    }
+
     @Test func typingNeverSearchesUntilSubmitted() async throws {
         let lookup = CountingLookup()
         let viewModel = make(lookup: lookup)

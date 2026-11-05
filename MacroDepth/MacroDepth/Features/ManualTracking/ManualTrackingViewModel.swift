@@ -41,7 +41,13 @@ final class ManualTrackingViewModel: Identifiable {
             if trimmedSearchText.isEmpty { clearSearch() }
         }
     }
-    /// What the current results are for. `nil` before the first search.
+    /// Whole foods matching the text so far. They need no network, so unlike the
+    /// database search they can follow typing, and they stay if that search fails.
+    var genericResults: [FoodProduct] { GenericFoodCatalog.search(searchText) }
+    var hasSearchText: Bool { !trimmedSearchText.isEmpty }
+    /// The database results shown are for the text in the field, not an earlier search.
+    var hasSearchedCurrentText: Bool { searchedQuery == trimmedSearchText }
+    /// What the current database results are for. `nil` before the first search.
     private(set) var searchedQuery: String?
     private(set) var searchResults: [FoodProduct] = []
     private(set) var isSearching = false
@@ -122,7 +128,7 @@ final class ManualTrackingViewModel: Identifiable {
                 lookupState = .notFound(code)
             }
         } catch {
-            lookupState = .failed(error.localizedDescription)
+            lookupState = .failed(Self.message(for: error))
         }
     }
 
@@ -170,9 +176,14 @@ final class ManualTrackingViewModel: Identifiable {
             guard !Task.isCancelled, !(error is CancellationError) else { return }
             searchResults = []
             searchedQuery = query
-            searchError = error.localizedDescription
+            searchError = Self.message(for: error)
         }
         isSearching = false
+    }
+
+    /// Includes the recovery advice, such as waiting out a rate limit.
+    private static func message(for error: any Error) -> String {
+        (error as? any LocalizedError)?.fullDescription ?? error.localizedDescription
     }
 
     // MARK: Weight

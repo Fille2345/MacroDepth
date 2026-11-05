@@ -43,6 +43,7 @@ TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
 - View models learn about new data from `PersistenceServiceProtocol.changes()` rather than `@Query`, so SwiftData stays behind the service.
 - A scan has one or two photos but one depth map. Depth, intrinsics and bounding boxes all refer to the first (top-down) photo; the second (angled) photo is RGB context only.
 - Manual tracking finds foods through `FoodLookupServiceProtocol`, using `OpenFoodFactsService` in the live app and `MockFoodLookupService` in previews and tests. Open Food Facts allows 10 searches and 15 product reads a minute, so search runs on submit, never per keystroke. Its data is ODbL, so the UI credits it.
+- Food search is hybrid. `GenericFoodCatalog` (USDA values, English and Swedish names) filters as you type with no network, and its results come first. Open Food Facts results follow after the user submits, and a failure there leaves the whole foods in place.
 - ARKit and `BarcodeCameraController` can't share the camera. `ScanViewModel` pauses the AR session before the barcode camera starts, and restarts it when the sheet closes.
 - A `SavedMeal` is a template. Logging one copies its components into a new `MealEntry`, so editing or deleting a template never changes past days. Every record owns its own photo file.
 - New stored properties must be optional or have a default, so existing stores migrate automatically. `SavedMealMigrationTests` keeps a copy of the previous schema to check this.
