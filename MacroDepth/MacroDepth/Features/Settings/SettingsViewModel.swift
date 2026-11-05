@@ -15,6 +15,7 @@ struct SettingsViewModel {
     let hardwareCapabilities: ScannerCapabilities
     let activeScannerCapabilities: ScannerCapabilities
     let usesMockAnalysis: Bool
+    let usesSampleFoodData: Bool
     let storageDescription: String
     let storageWarning: String?
     let appVersion: String
@@ -29,6 +30,7 @@ struct SettingsViewModel {
         hardwareCapabilities = dependencies.hardwareCapabilities
         activeScannerCapabilities = dependencies.scanner.capabilities
         usesMockAnalysis = dependencies.nutrition is MockNutritionService
+        usesSampleFoodData = dependencies.foodLookup is MockFoodLookupService
         storageWarning = dependencies.persistenceWarning
         switch dependencies.mode {
         case .preview: storageDescription = "In memory (preview)"

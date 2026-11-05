@@ -7,23 +7,28 @@ struct ScanView: View {
     @Bindable var viewModel: ScanViewModel
     @Environment(\.openURL) private var openURL
     @State private var isEditingNotes = false
+    @State private var manualTracking: ManualTrackingViewModel?
+    @FocusState private var focusedWeightField: UUID?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    CapturePreviewCard(
-                        image: viewModel.displayedImage,
-                        previewSession: viewModel.previewSession,
-                        detections: viewModel.detections,
-                        scannerState: viewModel.scannerState,
-                        capabilities: viewModel.capabilities,
-                        depthStatistics: viewModel.depthStatistics
-                    )
+                    if viewModel.showsCaptureCard {
+                        CapturePreviewCard(
+                            image: viewModel.displayedImage,
+                            previewSession: viewModel.previewSession,
+                            detections: viewModel.detections,
+                            scannerState: viewModel.scannerState,
+                            capabilities: viewModel.capabilities,
+                            depthStatistics: viewModel.depthStatistics
+                        )
+                    }
                     phaseContent
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Scan")
             .toolbar {
                 if viewModel.canReset {
@@ -33,10 +38,24 @@ struct ScanView: View {
                         }
                     }
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focusedWeightField = nil }
+                }
             }
         }
         .sheet(isPresented: $isEditingNotes) {
             MealNotesSheet(notes: $viewModel.userNotes)
+        }
+        .sheet(item: $manualTracking, onDismiss: { viewModel.resumeScannerAfterBarcode() }) { tracking in
+            ManualTrackingView(
+                viewModel: tracking,
+                onAdd: { draft in
+                    viewModel.addManualItem(draft)
+                    manualTracking = nil
+                },
+                onCancel: { manualTracking = nil }
+            )
         }
         .task {
             await viewModel.activate()
@@ -69,11 +88,38 @@ struct ScanView: View {
         case .saved:
             savedContent
         case .failed(let presentation):
-            ErrorCard(
-                presentation: presentation,
-                onRetry: { viewModel.retry() },
-                onOpenSettings: { openSystemSettings() }
-            )
+            VStack(alignment: .leading, spacing: 16) {
+                ErrorCard(
+                    presentation: presentation,
+                    onRetry: { viewModel.retry() },
+                    onOpenSettings: { openSystemSettings() }
+                )
+                manualTrackingOptions(title: "Or track it manually")
+            }
+        }
+    }
+
+    private func manualTrackingOptions(title: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+            HStack(spacing: 8) {
+                Button {
+                    manualTracking = viewModel.makeManualTracking(mode: .barcode)
+                } label: {
+                    Label("Scan Barcode", systemImage: "barcode.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                Button {
+                    manualTracking = viewModel.makeManualTracking(mode: .search)
+                } label: {
+                    Label("Search Food", systemImage: "magnifyingglass")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .font(.subheadline)
+            .buttonStyle(.bordered)
+            .disabled(!viewModel.canAddManualItems)
         }
     }
 
@@ -96,6 +142,8 @@ struct ScanView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(!viewModel.canCapture)
+
+            manualTrackingOptions(title: "Or track it manually")
         }
     }
 
@@ -241,6 +289,8 @@ struct ScanView: View {
                 ForEach(viewModel.drafts) { draft in
                     FoodDraftRow(
                         draft: draft,
+                        focusedWeightField: $focusedWeightField,
+                        onSetGrams: { viewModel.setGrams(for: draft.id, text: $0) },
                         onIncrement: { viewModel.stepGrams(for: draft.id, by: ScanViewModel.gramStep) },
                         onDecrement: { viewModel.stepGrams(for: draft.id, by: -ScanViewModel.gramStep) },
                         onRemove: { viewModel.removeDraft(id: draft.id) }
@@ -251,6 +301,8 @@ struct ScanView: View {
                 }
             }
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+
+            manualTrackingOptions(title: "Add another item")
 
             if let saveError = viewModel.saveError {
                 ErrorCard(
@@ -449,9 +501,25 @@ private struct MealNotesSheet: View {
 
 private struct FoodDraftRow: View {
     let draft: FoodItemDraft
+    var focusedWeightField: FocusState<UUID?>.Binding
+    let onSetGrams: (String) -> Bool
     let onIncrement: () -> Void
     let onDecrement: () -> Void
     let onRemove: () -> Void
+
+    @State private var gramsText = ""
+    @State private var isWeightInvalid = false
+
+    private var sourceDescription: String {
+        draft.portion.source == .manualEntry
+            ? draft.portion.source.displayName
+            : "\(draft.portion.source.displayName) · \(NutritionFormat.percent(draft.portion.confidence)) confidence"
+    }
+
+    /// Whole grams read better, but a typed decimal is kept as entered.
+    private var formattedGrams: String {
+        draft.portion.grams.formatted(.number.precision(.fractionLength(0...1)).grouping(.never))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -459,7 +527,7 @@ private struct FoodDraftRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(draft.name)
                         .font(.headline)
-                    Text("\(draft.portion.source.displayName) · \(NutritionFormat.percent(draft.portion.confidence)) confidence")
+                    Text(sourceDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -474,9 +542,48 @@ private struct FoodDraftRow: View {
                 .accessibilityLabel("Remove \(draft.name)")
             }
 
-            Stepper(onIncrement: onIncrement, onDecrement: onDecrement) {
-                Text(NutritionFormat.grams(draft.portion.grams))
+            HStack(spacing: 6) {
+                TextField("Weight", text: $gramsText)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.roundedBorder)
                     .font(.body.monospacedDigit())
+                    .frame(width: 84)
+                    .focused(focusedWeightField, equals: draft.id)
+                    .accessibilityLabel("Weight of \(draft.name) in grams")
+                Text("g")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Stepper("Adjust weight of \(draft.name)", onIncrement: onIncrement, onDecrement: onDecrement)
+                    .labelsHidden()
+            }
+            .onAppear { gramsText = formattedGrams }
+            .onChange(of: gramsText) { _, text in
+                // Only typing counts. Filling the field to display a weight must not change it,
+                // because the shown value is rounded and would mark a measurement as edited.
+                guard focusedWeightField.wrappedValue == draft.id else { return }
+                // Applies as it's typed. An empty field is just mid-edit, not an error.
+                isWeightInvalid = !text.isEmpty && !onSetGrams(text)
+            }
+            .onChange(of: draft.portion.grams) {
+                // The stepper changed it. Leave the field alone while it's being typed in.
+                if focusedWeightField.wrappedValue != draft.id {
+                    gramsText = formattedGrams
+                    isWeightInvalid = false
+                }
+            }
+            .onChange(of: focusedWeightField.wrappedValue) { _, focused in
+                // On leaving the field, show the weight actually in use.
+                if focused != draft.id {
+                    gramsText = formattedGrams
+                    isWeightInvalid = false
+                }
+            }
+
+            if isWeightInvalid {
+                Text("Enter a weight from \(Int(PortionCalculator.manualEntryRange.lowerBound)) to \(Int(PortionCalculator.manualEntryRange.upperBound).formatted()) g.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
 
             if let size = draft.measuredSize {

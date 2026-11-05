@@ -66,6 +66,9 @@ final class ScanViewModel {
     @ObservationIgnored private let persistence: any PersistenceServiceProtocol
     @ObservationIgnored private let permissions: any CameraPermissionProviding
     @ObservationIgnored private let volumeCalculator: any VolumeCalculatorServiceProtocol
+    @ObservationIgnored private let foodLookup: any FoodLookupServiceProtocol
+    /// Set while the barcode camera has the camera, which ARKit can't share.
+    @ObservationIgnored private var scannerPause: Task<Void, Never>?
     @ObservationIgnored private var analysisTask: Task<Void, Never>?
     @ObservationIgnored private var scannerStartTask: Task<Void, Never>?
     /// Recipe notes waiting for a meal that's being analyzed or reviewed to finish.
@@ -79,6 +82,7 @@ final class ScanViewModel {
         persistence: any PersistenceServiceProtocol,
         permissions: any CameraPermissionProviding,
         volumeCalculator: any VolumeCalculatorServiceProtocol = VolumeCalculatorService(),
+        foodLookup: any FoodLookupServiceProtocol = MockFoodLookupService(),
         now: Date = .now
     ) {
         self.scanner = scanner
@@ -86,6 +90,7 @@ final class ScanViewModel {
         self.persistence = persistence
         self.permissions = permissions
         self.volumeCalculator = volumeCalculator
+        self.foodLookup = foodLookup
         self.capabilities = scanner.capabilities
         self.previewSession = (scanner as? ARScannerService)?.session
         self.mealType = .suggested(for: now)
@@ -96,7 +101,8 @@ final class ScanViewModel {
             scanner: dependencies.scanner,
             nutrition: dependencies.nutrition,
             persistence: dependencies.persistence,
-            permissions: dependencies.cameraPermissions
+            permissions: dependencies.cameraPermissions,
+            foodLookup: dependencies.foodLookup
         )
     }
 
@@ -132,11 +138,31 @@ final class ScanViewModel {
     }
 
     /// Results come from the mock service, not from the user's photo.
-    var usesSampleAnalysis: Bool { nutrition is MockNutritionService }
+    var usesSampleAnalysis: Bool { nutrition is MockNutritionService && !detections.isEmpty }
 
     /// Some detected items got no usable estimate, so the total is too low.
     /// Removing a draft also removes its detection, so only those items differ.
-    var hasUnestimatedItems: Bool { detections.count > drafts.count }
+    /// Compared by id, because manually added items have no detection.
+    var hasUnestimatedItems: Bool {
+        let draftIDs = Set(drafts.map(\.id))
+        return detections.contains { !draftIDs.contains($0.id) }
+    }
+
+    /// A meal built by hand has no photo, and a live camera has no place on its review.
+    var showsCaptureCard: Bool {
+        switch phase {
+        case .review, .saving, .saved: capture != nil
+        default: true
+        }
+    }
+
+    /// Manual tracking is offered wherever nothing is being captured or analyzed.
+    var canAddManualItems: Bool {
+        switch phase {
+        case .idle, .startingScanner, .ready, .review, .failed: true
+        default: false
+        }
+    }
 
     // MARK: Lifecycle
 
@@ -231,6 +257,68 @@ final class ScanViewModel {
         guard let index = drafts.firstIndex(where: { $0.id == id }) else { return }
         let newGrams = max(drafts[index].portion.grams + delta, Self.gramStep)
         drafts[index].portion = PortionCalculator.adjusted(drafts[index].portion, toGrams: newGrams)
+    }
+
+    /// Sets an exact weight. Macros follow, because totals derive from the draft's grams.
+    /// Returns `false`, changing nothing, if the text isn't a usable weight.
+    @discardableResult
+    func setGrams(for id: UUID, text: String) -> Bool {
+        guard let index = drafts.firstIndex(where: { $0.id == id }),
+              let grams = OnboardingViewModel.parse(text),
+              PortionCalculator.manualEntryRange.contains(grams) else { return false }
+        guard drafts[index].portion.grams != grams else { return true }
+        drafts[index].portion = PortionCalculator.adjusted(drafts[index].portion, toGrams: grams)
+        return true
+    }
+
+    // MARK: Manual tracking
+
+    func makeManualTracking(mode: ManualTrackingViewModel.Mode) -> ManualTrackingViewModel {
+        ManualTrackingViewModel(
+            mode: mode,
+            lookup: foodLookup,
+            permissions: permissions,
+            prepareCameraHandover: { [weak self] in await self?.pauseScannerForBarcode() }
+        )
+    }
+
+    /// Adds a food to the meal under review, starting one if there isn't one yet.
+    func addManualItem(_ draft: FoodItemDraft) {
+        guard canAddManualItems else { return }
+        drafts.append(draft)
+        saveError = nil
+        phase = .review
+    }
+
+    /// Releases the camera, and waits until it's free.
+    func pauseScannerForBarcode() async {
+        guard capabilities.requiresCameraAccess else { return }
+        if scannerPause == nil {
+            let scanner = scanner
+            scannerPause = Task { await scanner.stop() }
+        }
+        await scannerPause?.value
+    }
+
+    /// Restarts the AR session after the barcode camera. A failure here only matters
+    /// if the user is waiting to capture, not if they're reviewing a meal.
+    func resumeScannerAfterBarcode() {
+        guard let pause = scannerPause else { return }
+        scannerPause = nil
+        scannerStartTask?.cancel()
+        scannerStartTask = Task { [weak self, scanner] in
+            await pause.value
+            do {
+                try await scanner.start()
+            } catch is CancellationError {
+                // The view disappeared while restarting.
+            } catch {
+                guard let self else { return }
+                if self.phase == .idle || self.phase == .startingScanner || self.phase == .ready {
+                    self.phase = .failed(ErrorPresentation(error))
+                }
+            }
+        }
     }
 
     func removeDraft(id: UUID) {

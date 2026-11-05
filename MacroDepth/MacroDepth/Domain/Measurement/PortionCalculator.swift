@@ -13,6 +13,8 @@ struct PortionEstimate: Sendable, Hashable {
         case userAdjusted
         /// Copied from a saved meal template rather than measured for this meal.
         case savedMeal
+        /// A weight the user chose for a food they found by barcode or search.
+        case manualEntry
 
         var displayName: String {
             switch self {
@@ -20,6 +22,7 @@ struct PortionEstimate: Sendable, Hashable {
             case .visualEstimate: "Photo estimate"
             case .userAdjusted: "Adjusted"
             case .savedMeal: "Saved meal"
+            case .manualEntry: "Manual"
             }
         }
     }
@@ -92,6 +95,22 @@ enum PortionCalculator {
             grams: min(grams, maximumPlausibleItemGrams),
             source: .visualEstimate,
             confidence: (modelConfidence.clampedToUnitInterval * visualEstimateConfidenceFactor).clampedToUnitInterval,
+            volume: nil,
+            densityGramsPerCubicCentimeter: nil,
+            densityWasAdjusted: false
+        )
+    }
+
+    /// Weights a person can enter directly.
+    static let manualEntryRange = minimumPlausibleItemGrams...maximumPlausibleItemGrams
+
+    /// A weight typed for a food found by barcode or search. `nil` if it's out of range.
+    static func portion(manualGrams grams: Double) -> PortionEstimate? {
+        guard grams.isFinite, manualEntryRange.contains(grams) else { return nil }
+        return PortionEstimate(
+            grams: grams,
+            source: .manualEntry,
+            confidence: 1,
             volume: nil,
             densityGramsPerCubicCentimeter: nil,
             densityWasAdjusted: false

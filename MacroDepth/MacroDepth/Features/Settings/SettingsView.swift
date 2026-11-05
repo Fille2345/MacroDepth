@@ -31,6 +31,14 @@ struct SettingsView: View {
                     Text("Photos, depth-derived volumes and any notes you add are sent to Google's Gemini API for analysis.")
                 }
 
+                if viewModel.usesSampleFoodData {
+                    Section {
+                        LabeledContent("Food database", value: "Sample data")
+                    } footer: {
+                        Text("Barcode and food search results are samples until a real database is connected.")
+                    }
+                }
+
                 Section("Device") {
                     LabeledContent("Hardware", value: viewModel.hardwareDescription)
                     LabeledContent("Active scanner", value: viewModel.activeScannerCapabilities.summary)

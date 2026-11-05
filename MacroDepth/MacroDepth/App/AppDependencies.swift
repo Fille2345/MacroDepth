@@ -16,6 +16,7 @@ final class AppDependencies {
     let hardwareCapabilities: ScannerCapabilities
     let scanner: any ARScannerServiceProtocol
     let nutrition: any NutritionServiceProtocol
+    let foodLookup: any FoodLookupServiceProtocol
     let persistence: any PersistenceServiceProtocol
     let cameraPermissions: any CameraPermissionProviding
     let configuration: Result<AppConfiguration, ConfigurationError>
@@ -27,6 +28,7 @@ final class AppDependencies {
         hardwareCapabilities: ScannerCapabilities,
         scanner: any ARScannerServiceProtocol,
         nutrition: any NutritionServiceProtocol,
+        foodLookup: any FoodLookupServiceProtocol = MockFoodLookupService(),
         persistence: any PersistenceServiceProtocol,
         cameraPermissions: any CameraPermissionProviding,
         configuration: Result<AppConfiguration, ConfigurationError>,
@@ -36,6 +38,7 @@ final class AppDependencies {
         self.hardwareCapabilities = hardwareCapabilities
         self.scanner = scanner
         self.nutrition = nutrition
+        self.foodLookup = foodLookup
         self.persistence = persistence
         self.cameraPermissions = cameraPermissions
         self.configuration = configuration

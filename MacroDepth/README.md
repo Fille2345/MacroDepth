@@ -28,7 +28,7 @@ TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
 | `MacroDepth/App` | Entry point, dependency container, root tab view |
 | `MacroDepth/Domain` | Sendable value types, typed errors, SwiftData models, portion math |
 | `MacroDepth/Services` | Service protocols plus live, mock and simulated implementations |
-| `MacroDepth/Features` | View + `@Observable` view-model pairs (Dashboard, Progress, Scan, Recipes, Log, Settings, Onboarding) |
+| `MacroDepth/Features` | View + `@Observable` view-model pairs (Dashboard, Progress, Scan, ManualTracking, Recipes, Log, Settings, Onboarding) |
 | `MacroDepth/Support` | Configuration, formatters, concurrency helpers, sample scene |
 | `MacroDepthTests` | Swift Testing suites |
 
@@ -42,6 +42,8 @@ TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
 - Daily targets come from `UserProfileDraft.targets` (Mifflin-St Jeor, then the goal's adjustment). Calculated and manual targets are both clamped to `TargetLimits`.
 - View models learn about new data from `PersistenceServiceProtocol.changes()` rather than `@Query`, so SwiftData stays behind the service.
 - A scan has one or two photos but one depth map. Depth, intrinsics and bounding boxes all refer to the first (top-down) photo; the second (angled) photo is RGB context only.
+- Manual tracking finds foods through `FoodLookupServiceProtocol`. `MockFoodLookupService` is a stand-in, labelled as sample data in the UI, until a real database such as Open Food Facts conforms to it.
+- ARKit and `BarcodeCameraController` can't share the camera. `ScanViewModel` pauses the AR session before the barcode camera starts, and restarts it when the sheet closes.
 - A `SavedMeal` is a template. Logging one copies its components into a new `MealEntry`, so editing or deleting a template never changes past days. Every record owns its own photo file.
 - New stored properties must be optional or have a default, so existing stores migrate automatically. `SavedMealMigrationTests` keeps a copy of the previous schema to check this.
 - User notes can change Gemini's macros and density suggestions, but never measured volume. Pasted text is treated as data, not as instructions to the model.
