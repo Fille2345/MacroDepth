@@ -1,18 +1,8 @@
-# MacroDepth
+# MacroDepth architecture
 
-iOS 17+ app that combines ARKit LiDAR depth with Gemini vision to estimate food portions and macros.
+Notes for contributors: how the code is laid out and the rules it follows. For installing and running the app, see the [README](../README.md).
 
-## Setup
-
-```sh
-brew install xcodegen
-xcodegen generate
-open MacroDepth.xcodeproj
-```
-
-No API key is built into the app. On first scan the app asks for your own Gemini API key (free from [Google AI Studio](https://aistudio.google.com/apikey)); you can also add, replace or remove it under Settings → Gemini. It's stored in the device Keychain (`AfterFirstUnlockThisDeviceOnly`) and only sent to Google. Previews use sample analysis and need no key.
-
-To run on your own device, copy `Config/Local.example.xcconfig` to `Config/Local.xcconfig` (git-ignored) and set your bundle identifier and `DEVELOPMENT_TEAM`. The HealthKit capability needs a team to sign.
+## Live API test
 
 To check a key and the request format against the real API, using a few tokens:
 
