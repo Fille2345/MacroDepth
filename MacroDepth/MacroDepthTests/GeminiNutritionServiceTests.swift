@@ -289,30 +289,16 @@ struct GeminiNutritionServiceTests {
         }
     }
 
-    // MARK: Wiring
-
-    @MainActor
-    @Test func liveGraphUsesGeminiOnlyWithAValidConfiguration() {
-        let valid = AppDependencies.makeNutritionService(
-            for: .success(AppConfiguration(apiKey: "AIzaTestKey", modelID: "m"))
-        )
-        #expect(valid is GeminiNutritionService)
-
-        let missing = AppDependencies.makeNutritionService(
-            for: .failure(.placeholderValue(key: AppConfiguration.apiKeyInfoKey))
-        )
-        #expect(missing is MockNutritionService)
-    }
-
 }
 
-/// Calls the real API, so it only runs when asked for:
-/// `TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -only-testing:MacroDepthTests/GeminiLiveTests …`
-/// It reads the key from the host app's Info.plist and never prints it.
-@Suite(.enabled(if: ProcessInfo.processInfo.environment["MACRODEPTH_LIVE_GEMINI"] == "1"))
+/// Calls the real API, so it only runs when given a key:
+/// `TEST_RUNNER_GEMINI_API_KEY=… xcodebuild test -only-testing:MacroDepthTests/GeminiLiveTests …`
+/// It never prints the key.
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["GEMINI_API_KEY"]?.isEmpty == false))
 struct GeminiLiveTests {
     @Test func realAPIAcceptsBothRequestsAndSchemas() async throws {
-        let configuration = try AppConfiguration.load().get()
+        let key = try AppConfiguration.validatedAPIKey(ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? "").get()
+        let configuration = AppConfiguration(apiKey: key, modelID: AppConfiguration.modelID())
         let service = GeminiNutritionService(configuration: configuration)
         let image = try SampleScene.renderJPEG()
 

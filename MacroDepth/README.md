@@ -6,17 +6,18 @@ iOS 17+ app that combines ARKit LiDAR depth with Gemini vision to estimate food 
 
 ```sh
 brew install xcodegen
-cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # add your GEMINI_API_KEY
 xcodegen generate
 open MacroDepth.xcodeproj
 ```
 
-The app builds and runs without a key. In that case Settings shows the configuration error, and scans use sample data, labelled as such on the review screen.
+No API key is built into the app. On first scan the app asks for your own Gemini API key (free from [Google AI Studio](https://aistudio.google.com/apikey)); you can also add, replace or remove it under Settings → Gemini. It's stored in the device Keychain (`AfterFirstUnlockThisDeviceOnly`) and only sent to Google. Previews use sample analysis and need no key.
 
-To check your key and the request format against the real API, using a few tokens:
+To run on your own device, optionally copy `Config/Local.example.xcconfig` to `Config/Local.xcconfig` (git-ignored) and set your bundle identifier and team.
+
+To check a key and the request format against the real API, using a few tokens:
 
 ```sh
-TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
+TEST_RUNNER_GEMINI_API_KEY=<your key> xcodebuild test -scheme MacroDepth \
   -destination 'platform=iOS Simulator,name=<simulator>' \
   -only-testing:MacroDepthTests/GeminiLiveTests
 ```
@@ -51,4 +52,4 @@ TEST_RUNNER_MACRODEPTH_LIVE_GEMINI=1 xcodebuild test -scheme MacroDepth \
 
 ## Security note
 
-A key in `Secrets.xcconfig` ends up in the app bundle and can be extracted. That's fine for development. Before release, swap the Gemini client for a backend proxy.
+Each user brings their own key, so no key ships in the bundle. Calls still go straight from the device to Google; for a hosted product with a shared key, swap the Gemini client for a backend proxy (`GeminiAPIClient` is the seam).

@@ -3,32 +3,27 @@
 import Foundation
 
 enum ConfigurationError: Error, Equatable, Sendable, LocalizedError {
-    case missingValue(key: String)
     case emptyValue(key: String)
-    case unexpandedBuildSetting(key: String)
     case placeholderValue(key: String)
     case invalidValue(key: String, reason: String)
 
     var key: String {
         switch self {
-        case .missingValue(let key), .emptyValue(let key), .unexpandedBuildSetting(let key),
-             .placeholderValue(let key), .invalidValue(let key, _):
+        case .emptyValue(let key), .placeholderValue(let key), .invalidValue(let key, _):
             key
         }
     }
 
     var errorDescription: String? {
         switch self {
-        case .missingValue(let key): "\(key) is missing from Info.plist."
-        case .emptyValue(let key): "\(key) is empty."
-        case .unexpandedBuildSetting(let key): "\(key) wasn't expanded at build time."
-        case .placeholderValue(let key): "\(key) still contains the example placeholder."
-        case .invalidValue(let key, let reason): "\(key) is invalid: \(reason)"
+        case .emptyValue(let key): "Enter a \(key)."
+        case .placeholderValue(let key): "That's the example text, not a real \(key)."
+        case .invalidValue(let key, let reason): "That \(key) can't be used: \(reason)."
         }
     }
 
     var recoverySuggestion: String? {
-        "Copy Config/Secrets.example.xcconfig to Config/Secrets.xcconfig, set \(key), then run xcodegen generate and rebuild."
+        "Copy your key from Google AI Studio and paste it here."
     }
 }
 

@@ -47,6 +47,15 @@ struct ScanView: View {
         .sheet(isPresented: $isEditingNotes) {
             MealNotesSheet(notes: $viewModel.userNotes)
         }
+        .sheet(isPresented: $viewModel.isRequestingAPIKey, onDismiss: { viewModel.dismissAPIKeyPrompt() }) {
+            if let apiKeys = viewModel.apiKeys {
+                GeminiKeySheet(
+                    apiKeys: apiKeys,
+                    onSaved: { viewModel.apiKeySaved() },
+                    onCancel: { viewModel.dismissAPIKeyPrompt() }
+                )
+            }
+        }
         .sheet(item: $manualTracking, onDismiss: { viewModel.resumeScannerAfterBarcode() }) { tracking in
             ManualTrackingView(
                 viewModel: tracking,

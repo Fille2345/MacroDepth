@@ -483,3 +483,65 @@ struct ScanViewModelTests {
         #expect(viewModel.userNotes.isEmpty)
     }
 }
+
+// MARK: Gemini key prompt
+
+extension ScanViewModelTests {
+    @Test func scanningWithoutAKeyAsksForOneThenContinues() async throws {
+        let keys = GeminiKeyManager(store: InMemoryAPIKeyStore())
+        let viewModel = ScanViewModel(
+            scanner: StubScanner(),
+            nutrition: MockNutritionService(latency: .zero),
+            persistence: try SwiftDataPersistenceService.makeInMemory(),
+            permissions: MockCameraPermissionService(),
+            apiKeys: keys
+        )
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+
+        try await waitForPhase(.ready, in: viewModel)
+        viewModel.capturePrimaryPhoto()
+        #expect(viewModel.isRequestingAPIKey)
+        #expect(viewModel.phase == .ready)   // nothing captured yet
+
+        try keys.save("AIzaSyTestKey0123456789abcdef")
+        viewModel.apiKeySaved()
+        #expect(!viewModel.isRequestingAPIKey)
+        try await waitForPhase(.awaitingSecondaryPhoto, in: viewModel)
+    }
+
+    @Test func keyRemovedMidScanKeepsThePhotosAndAsksAgain() async throws {
+        let store = InMemoryAPIKeyStore(key: "AIzaSyTestKey0123456789abcdef")
+        let keys = GeminiKeyManager(store: store)
+        let viewModel = ScanViewModel(
+            scanner: StubScanner(),
+            nutrition: MockNutritionService(behavior: .failure(.missingAPIKey), latency: .zero),
+            persistence: try SwiftDataPersistenceService.makeInMemory(),
+            permissions: MockCameraPermissionService(),
+            apiKeys: keys
+        )
+        let activation = Task { await viewModel.activate() }
+        defer { activation.cancel() }
+
+        try await waitForPhase(.ready, in: viewModel)
+        viewModel.capturePrimaryPhoto()
+        try await waitForPhase(.awaitingSecondaryPhoto, in: viewModel)
+        viewModel.skipSecondaryPhoto()
+        viewModel.analyze()
+        try await waitForPhase(.readyToAnalyze, in: viewModel)
+        for _ in 0..<200 where !viewModel.isRequestingAPIKey {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(viewModel.isRequestingAPIKey)
+        #expect(viewModel.capture != nil)
+
+        viewModel.dismissAPIKeyPrompt()
+        #expect(!viewModel.isRequestingAPIKey)
+    }
+
+    @Test func previewMockNeverAsksForAKey() {
+        let viewModel = ScanViewModel(dependencies: .makePreview(apiKey: nil))
+        #expect(viewModel.apiKeys == nil)
+        #expect(!viewModel.needsAPIKey)
+    }
+}

@@ -2,16 +2,13 @@
 
 import Foundation
 
-/// Read-only diagnostics: configuration, hardware and storage. Everything is
-/// fixed at launch, so a plain value type is enough.
+/// The Gemini key, plus read-only diagnostics: hardware and storage. The key can
+/// change at any time, so it's read through the shared `GeminiKeyManager`;
+/// everything else is fixed at launch.
 @MainActor
 struct SettingsViewModel {
-    enum GeminiStatus: Equatable {
-        case configured(modelID: String, redactedKey: String)
-        case misconfigured(message: String)
-    }
-
-    let geminiStatus: GeminiStatus
+    let apiKeys: GeminiKeyManager
+    let modelID: String
     let hardwareCapabilities: ScannerCapabilities
     let activeScannerCapabilities: ScannerCapabilities
     let usesMockAnalysis: Bool
@@ -21,12 +18,8 @@ struct SettingsViewModel {
     let appVersion: String
 
     init(dependencies: AppDependencies, bundle: Bundle = .main) {
-        switch dependencies.configuration {
-        case .success(let configuration):
-            geminiStatus = .configured(modelID: configuration.modelID, redactedKey: configuration.redactedAPIKey)
-        case .failure(let error):
-            geminiStatus = .misconfigured(message: error.fullDescription)
-        }
+        apiKeys = dependencies.apiKeys
+        modelID = dependencies.modelID
         hardwareCapabilities = dependencies.hardwareCapabilities
         activeScannerCapabilities = dependencies.scanner.capabilities
         usesMockAnalysis = dependencies.nutrition is MockNutritionService

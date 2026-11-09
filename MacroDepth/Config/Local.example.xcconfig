@@ -1,0 +1,9 @@
+// Config/Local.example.xcconfig
+// Optional. Copy to Config/Local.xcconfig (git-ignored) to sign and run on your own device:
+//   cp Config/Local.example.xcconfig Config/Local.xcconfig
+//
+// The Gemini API key does NOT go here. Enter it in the app under Settings → Gemini.
+
+// MACRODEPTH_BUNDLE_IDENTIFIER = se.yourname.MacroDepth
+// DEVELOPMENT_TEAM = ABCDE12345
+// GEMINI_MODEL_ID = gemini-3.6-flash

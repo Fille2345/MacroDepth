@@ -19,7 +19,9 @@ final class AppDependencies {
     let foodLookup: any FoodLookupServiceProtocol
     let persistence: any PersistenceServiceProtocol
     let cameraPermissions: any CameraPermissionProviding
-    let configuration: Result<AppConfiguration, ConfigurationError>
+    /// The user's Gemini key, shared by Settings and Scan.
+    let apiKeys: GeminiKeyManager
+    let modelID: String
     /// Set when the persistent store couldn't open and an in-memory store is used.
     let persistenceWarning: String?
 
@@ -31,7 +33,8 @@ final class AppDependencies {
         foodLookup: any FoodLookupServiceProtocol = MockFoodLookupService(),
         persistence: any PersistenceServiceProtocol,
         cameraPermissions: any CameraPermissionProviding,
-        configuration: Result<AppConfiguration, ConfigurationError>,
+        apiKeys: GeminiKeyManager,
+        modelID: String = AppConfiguration.defaultModelID,
         persistenceWarning: String? = nil
     ) {
         self.mode = mode
@@ -41,7 +44,8 @@ final class AppDependencies {
         self.foodLookup = foodLookup
         self.persistence = persistence
         self.cameraPermissions = cameraPermissions
-        self.configuration = configuration
+        self.apiKeys = apiKeys
+        self.modelID = modelID
         self.persistenceWarning = persistenceWarning
     }
 
@@ -52,8 +56,8 @@ final class AppDependencies {
         return makeLive()
     }
 
-    /// Live graph: real persistence, permissions, configuration, hardware detection,
-    /// scanning and Gemini analysis.
+    /// Live graph: real persistence, permissions, hardware detection, scanning, and
+    /// Gemini analysis with the key the user saves in Settings.
     static func makeLive() -> AppDependencies {
         let persistence: SwiftDataPersistenceService
         var persistenceWarning: String?
@@ -65,29 +69,20 @@ final class AppDependencies {
         }
 
         let hardware = DeviceCapabilityProbe.currentHardware()
-        let configuration = AppConfiguration.load()
+        let keyStore = KeychainAPIKeyStore()
+        let modelID = AppConfiguration.modelID()
         return AppDependencies(
             mode: .live,
             hardwareCapabilities: hardware,
             scanner: makeScanner(for: hardware),
-            nutrition: makeNutritionService(for: configuration),
+            nutrition: KeyedGeminiNutritionService(store: keyStore, modelID: modelID),
             foodLookup: OpenFoodFactsService(),
             persistence: persistence,
             cameraPermissions: SystemCameraPermissionService(),
-            configuration: configuration,
+            apiKeys: GeminiKeyManager(store: keyStore),
+            modelID: modelID,
             persistenceWarning: persistenceWarning
         )
-    }
-
-    /// Without a usable key the app keeps working on sample data. Settings shows
-    /// the configuration error and the review screen labels the results as samples.
-    static func makeNutritionService(
-        for configuration: Result<AppConfiguration, ConfigurationError>
-    ) -> any NutritionServiceProtocol {
-        switch configuration {
-        case .success(let configuration): GeminiNutritionService(configuration: configuration)
-        case .failure: MockNutritionService()
-        }
     }
 
     /// Real hardware (with or without LiDAR) uses ARKit. The Simulator has no camera,
@@ -104,9 +99,7 @@ final class AppDependencies {
         seedSampleMeals: Bool = true,
         seedSampleProfile: Bool = true,
         seedSampleProgress: Bool = false,
-        configuration: Result<AppConfiguration, ConfigurationError> = .success(
-            AppConfiguration(apiKey: "AIzaPreviewKey000000000000", modelID: AppConfiguration.defaultModelID)
-        )
+        apiKey: String? = "AIzaPreviewKey000000000000"
     ) -> AppDependencies {
         let persistence = makeInMemoryStoreOrTerminate()
         if seedSampleMeals {
@@ -125,7 +118,7 @@ final class AppDependencies {
             nutrition: MockNutritionService(behavior: nutritionBehavior, latency: .milliseconds(400)),
             persistence: persistence,
             cameraPermissions: MockCameraPermissionService(),
-            configuration: configuration
+            apiKeys: GeminiKeyManager(store: InMemoryAPIKeyStore(key: apiKey))
         )
     }
 

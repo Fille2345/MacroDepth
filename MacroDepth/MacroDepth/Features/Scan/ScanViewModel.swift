@@ -56,6 +56,8 @@ final class ScanViewModel {
     var mealType: MealType
     /// Raw text from the notes sheet. Use `normalizedNotes` when sending or saving it.
     var userNotes = ""
+    /// Shows the Gemini key prompt. Set when the user tries to scan without a key.
+    var isRequestingAPIKey = false
 
     let capabilities: ScannerCapabilities
     /// The session to show as the live camera feed. `nil` for the simulated scanner.
@@ -67,6 +69,10 @@ final class ScanViewModel {
     @ObservationIgnored private let permissions: any CameraPermissionProviding
     @ObservationIgnored private let volumeCalculator: any VolumeCalculatorServiceProtocol
     @ObservationIgnored private let foodLookup: any FoodLookupServiceProtocol
+    /// `nil` when the nutrition service needs no key, as with the mock.
+    let apiKeys: GeminiKeyManager?
+    /// What the user was doing when the key prompt appeared, resumed once a key is saved.
+    @ObservationIgnored private var actionAwaitingAPIKey: (@MainActor () -> Void)?
     /// Set while the barcode camera has the camera, which ARKit can't share.
     @ObservationIgnored private var scannerPause: Task<Void, Never>?
     @ObservationIgnored private var analysisTask: Task<Void, Never>?
@@ -83,6 +89,7 @@ final class ScanViewModel {
         permissions: any CameraPermissionProviding,
         volumeCalculator: any VolumeCalculatorServiceProtocol = VolumeCalculatorService(),
         foodLookup: any FoodLookupServiceProtocol = MockFoodLookupService(),
+        apiKeys: GeminiKeyManager? = nil,
         now: Date = .now
     ) {
         self.scanner = scanner
@@ -91,6 +98,7 @@ final class ScanViewModel {
         self.permissions = permissions
         self.volumeCalculator = volumeCalculator
         self.foodLookup = foodLookup
+        self.apiKeys = apiKeys
         self.capabilities = scanner.capabilities
         self.previewSession = (scanner as? ARScannerService)?.session
         self.mealType = .suggested(for: now)
@@ -102,7 +110,9 @@ final class ScanViewModel {
             nutrition: dependencies.nutrition,
             persistence: dependencies.persistence,
             permissions: dependencies.cameraPermissions,
-            foodLookup: dependencies.foodLookup
+            foodLookup: dependencies.foodLookup,
+            // The mock (previews) needs no key, so it never prompts.
+            apiKeys: dependencies.nutrition is MockNutritionService ? nil : dependencies.apiKeys
         )
     }
 
@@ -130,6 +140,9 @@ final class ScanViewModel {
     }
 
     var hasQueuedNotes: Bool { queuedNotes != nil }
+
+    /// Analysis can't run until the user saves a Gemini key.
+    var needsAPIKey: Bool { apiKeys.map { !$0.hasKey } ?? false }
 
     var totalMacros: MacroNutrients { drafts.map(\.totalMacros).sum() }
 
@@ -196,6 +209,7 @@ final class ScanViewModel {
 
     func capturePrimaryPhoto() {
         guard canCapture else { return }
+        guard !requestAPIKeyIfNeeded(then: { [weak self] in self?.capturePrimaryPhoto() }) else { return }
         analysisTask?.cancel()
         analysisTask = Task { [weak self] in
             await self?.runPrimaryCapture()
@@ -224,10 +238,24 @@ final class ScanViewModel {
 
     func analyze() {
         guard phase == .readyToAnalyze, let capture else { return }
+        guard !requestAPIKeyIfNeeded(then: { [weak self] in self?.analyze() }) else { return }
         analysisTask?.cancel()
         analysisTask = Task { [weak self] in
             await self?.runAnalysisPipeline(capture: capture)
         }
+    }
+
+    /// The key prompt saved a key: carry on with what the user was doing.
+    func apiKeySaved() {
+        isRequestingAPIKey = false
+        let action = actionAwaitingAPIKey
+        actionAwaitingAPIKey = nil
+        action?()
+    }
+
+    func dismissAPIKeyPrompt() {
+        isRequestingAPIKey = false
+        actionAwaitingAPIKey = nil
     }
 
     func cancelAnalysis() {
@@ -359,6 +387,14 @@ final class ScanViewModel {
 
     // MARK: Private
 
+    /// Returns `true`, and shows the key prompt, when there's no key yet.
+    private func requestAPIKeyIfNeeded(then action: @escaping @MainActor () -> Void) -> Bool {
+        guard needsAPIKey else { return false }
+        actionAwaitingAPIKey = action
+        isRequestingAPIKey = true
+        return true
+    }
+
     private func prepareAndStartScanner() async {
         guard await ensureCameraAccess() else { return }
         if phase == .idle {
@@ -479,6 +515,13 @@ final class ScanViewModel {
             clearAnalysisResults()
             applyQueuedNotes()
             phase = .readyToAnalyze
+        } catch NutritionServiceError.missingAPIKey where apiKeys != nil {
+            // The key was removed after the scan started. Ask for one and keep the photos.
+            clearAnalysisResults()
+            applyQueuedNotes()
+            phase = .readyToAnalyze
+            actionAwaitingAPIKey = { [weak self] in self?.analyze() }
+            isRequestingAPIKey = true
         } catch {
             applyQueuedNotes()
             phase = .failed(ErrorPresentation(error))
