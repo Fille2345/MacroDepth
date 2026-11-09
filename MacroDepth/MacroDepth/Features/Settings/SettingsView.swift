@@ -81,9 +81,12 @@ struct SettingsView: View {
                 } header: {
                     Text("Storage")
                 } footer: {
-                    if let warning = viewModel.storageWarning {
-                        Text(warning)
-                            .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Meal photos are deleted after \(PhotoRetention.days) days to save space. Your meals and their nutrition stay in the log and charts. Saved meals keep their photos.")
+                        if let warning = viewModel.storageWarning {
+                            Text(warning)
+                                .foregroundStyle(.red)
+                        }
                     }
                 }
 

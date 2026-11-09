@@ -71,6 +71,37 @@ actor CaptureImageStore {
         }
     }
 
+    /// Deletes each file that exists and returns how many were removed. A file that
+    /// can't be deleted is skipped; the next cleanup's orphan sweep tries again.
+    func delete(fileNames: [String]) -> Int {
+        fileNames.reduce(0) { count, fileName in
+            let fileURL = url(for: fileName)
+            guard (try? FileManager.default.removeItem(at: fileURL)) != nil else { return count }
+            return count + 1
+        }
+    }
+
+    /// Deletes files no record refers to, such as one left behind when deleting it
+    /// failed. Files changed after `modifiedBefore` are kept, because a save in
+    /// progress writes its photo before the record that refers to it.
+    func deleteFiles(notIn referencedFileNames: Set<String>, modifiedBefore cutoff: Date) -> Int {
+        let fileManager = FileManager.default
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }   // No directory yet means no photos.
+
+        let orphans = urls.filter { fileURL in
+            guard !referencedFileNames.contains(fileURL.lastPathComponent),
+                  let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let modified = values.contentModificationDate else { return false }
+            return modified < cutoff
+        }
+        return delete(fileNames: orphans.map(\.lastPathComponent))
+    }
+
     /// Only the last path component is used, so a stored name can't escape the directory.
     nonisolated func url(for fileName: String) -> URL {
         let safeName = URL(fileURLWithPath: fileName).lastPathComponent

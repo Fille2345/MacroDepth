@@ -47,6 +47,7 @@ TEST_RUNNER_GEMINI_API_KEY=<your key> xcodebuild test -scheme MacroDepth \
 - Food search is hybrid. `GenericFoodCatalog` (USDA values, English and Swedish names) filters as you type with no network, and its results come first. Open Food Facts results follow after the user submits, and a failure there leaves the whole foods in place.
 - ARKit and `BarcodeCameraController` can't share the camera. `ScanViewModel` pauses the AR session before the barcode camera starts, and restarts it when the sheet closes.
 - A `SavedMeal` is a template. Logging one copies its components into a new `MealEntry`, so editing or deleting a template never changes past days. Every record owns its own photo file.
+- Logged meals keep their photo for 7 days (`PhotoRetention`). `prunePhotos(ofMealsBefore:)` runs whenever the app becomes active: it clears each expired meal's `imageFileName`, then deletes the file, then sweeps files no record refers to (skipping any changed in the last hour, which may belong to a save in progress). Meal records and macros are never deleted, and templates keep their own photo copies.
 - New stored properties must be optional or have a default, so existing stores migrate automatically. `SavedMealMigrationTests` keeps a copy of the previous schema to check this.
 - User notes can change Gemini's macros and density suggestions, but never measured volume. Pasted text is treated as data, not as instructions to the model.
 

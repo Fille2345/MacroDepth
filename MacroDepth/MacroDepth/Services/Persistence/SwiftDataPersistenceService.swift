@@ -434,6 +434,64 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         return savedMeal
     }
 
+    // MARK: Photo retention
+
+    /// Files younger than this may belong to a save that hasn't stored its record yet.
+    static let orphanGracePeriod: TimeInterval = 60 * 60
+
+    @discardableResult
+    func prunePhotos(ofMealsBefore cutoff: Date) async throws -> PhotoPruneResult {
+        let expired: [MealEntry]
+        do {
+            expired = try context.fetch(FetchDescriptor<MealEntry>(
+                predicate: #Predicate { $0.timestamp < cutoff && $0.imageFileName != nil }
+            ))
+        } catch {
+            throw PersistenceError.fetchFailed(error.localizedDescription)
+        }
+
+        // Clear the references first. If the files then can't be deleted, they're
+        // orphans the next sweep removes; the reverse order could leave records
+        // pointing at missing files.
+        let expiredFileNames = expired.compactMap(\.imageFileName)
+        if !expired.isEmpty {
+            for meal in expired {
+                meal.imageFileName = nil
+            }
+            do {
+                try context.save()
+            } catch {
+                context.rollback()
+                throw PersistenceError.saveFailed(error.localizedDescription)
+            }
+            changeBroadcaster.send(())
+        }
+
+        var result = PhotoPruneResult(mealsCleared: expired.count)
+        result.filesDeleted = await imageStore.delete(fileNames: expiredFileNames)
+        let referenced = try referencedImageFileNames()
+        result.filesDeleted += await imageStore.deleteFiles(
+            notIn: referenced,
+            modifiedBefore: Date.now.addingTimeInterval(-Self.orphanGracePeriod)
+        )
+        return result
+    }
+
+    /// Every photo file a meal or template still uses.
+    private func referencedImageFileNames() throws -> Set<String> {
+        var mealDescriptor = FetchDescriptor<MealEntry>(predicate: #Predicate { $0.imageFileName != nil })
+        mealDescriptor.propertiesToFetch = [\.imageFileName]
+        var templateDescriptor = FetchDescriptor<SavedMeal>(predicate: #Predicate { $0.imageFileName != nil })
+        templateDescriptor.propertiesToFetch = [\.imageFileName]
+        do {
+            let mealFiles = try context.fetch(mealDescriptor).compactMap(\.imageFileName)
+            let templateFiles = try context.fetch(templateDescriptor).compactMap(\.imageFileName)
+            return Set(mealFiles + templateFiles)
+        } catch {
+            throw PersistenceError.fetchFailed(error.localizedDescription)
+        }
+    }
+
     // MARK: Changes
 
     func changes() -> AsyncStream<Void> {

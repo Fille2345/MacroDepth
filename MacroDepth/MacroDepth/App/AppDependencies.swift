@@ -1,6 +1,7 @@
 // App/AppDependencies.swift
 
 import Foundation
+import OSLog
 
 /// Composition root. Builds the live or preview service graph once at launch;
 /// view models receive the individual services through their initializers.
@@ -47,6 +48,34 @@ final class AppDependencies {
         self.apiKeys = apiKeys
         self.modelID = modelID
         self.persistenceWarning = persistenceWarning
+    }
+
+    /// The cleanup in progress, so becoming active again doesn't start a second one.
+    private var photoCleanup: Task<Void, Never>?
+
+    /// Deletes photos of meals older than `PhotoRetention.days`, keeping the meals.
+    /// Runs at launch and whenever the app comes back to the foreground, because
+    /// iOS can keep the app suspended for days. File deletion runs off the main actor.
+    /// Previews keep their sample data as it is.
+    func startPhotoCleanup(now: @escaping @Sendable () -> Date = { .now }) {
+        guard mode == .live, photoCleanup == nil else { return }
+        let persistence = persistence
+        photoCleanup = Task(priority: .utility) { [weak self] in
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MacroDepth", category: "PhotoCleanup")
+            do {
+                let result = try await persistence.pruneExpiredPhotos(now: now())
+                logger.notice("Removed photos from \(result.mealsCleared, privacy: .public) meals, \(result.filesDeleted, privacy: .public) files")
+            } catch {
+                // Nothing is lost; the next launch tries again.
+                logger.error("Photo cleanup failed: \(error.localizedDescription, privacy: .public)")
+            }
+            self?.photoCleanup = nil
+        }
+    }
+
+    /// Waits for a running cleanup. For tests.
+    func waitForPhotoCleanup() async {
+        await photoCleanup?.value
     }
 
     static func makeForCurrentProcess() -> AppDependencies {
