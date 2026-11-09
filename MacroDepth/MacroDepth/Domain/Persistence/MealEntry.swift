@@ -20,6 +20,9 @@ final class MealEntry {
     /// The template this meal was logged from, if any. It's `nil` for scanned meals and
     /// once the template is deleted. Optional, so existing stores migrate automatically.
     var savedMeal: SavedMeal?
+    /// The meal this one was copied from, so the Log can show it's already been copied.
+    /// Optional, so existing stores migrate automatically.
+    var copiedFromMealID: UUID?
 
     @Relationship(deleteRule: .cascade, inverse: \LoggedFoodItem.meal)
     var items: [LoggedFoodItem] = []

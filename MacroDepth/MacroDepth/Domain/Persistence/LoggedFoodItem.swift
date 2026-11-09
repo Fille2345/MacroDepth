@@ -43,6 +43,24 @@ final class LoggedFoodItem {
         energyKilocaloriesPer100g = draft.macrosPer100Grams.energyKilocalories
     }
 
+    /// A copy of another meal's item, for copying a meal to another day.
+    init(copying item: LoggedFoodItem) {
+        id = UUID()
+        name = item.name
+        categoryRawValue = item.categoryRawValue
+        sortIndex = item.sortIndex
+        grams = item.grams
+        portionSourceRawValue = item.portionSourceRawValue
+        confidence = item.confidence
+        volumeCubicCentimeters = item.volumeCubicCentimeters
+        densityGramsPerCubicCentimeter = item.densityGramsPerCubicCentimeter
+        proteinGramsPer100g = item.proteinGramsPer100g
+        carbohydrateGramsPer100g = item.carbohydrateGramsPer100g
+        fatGramsPer100g = item.fatGramsPer100g
+        fiberGramsPer100g = item.fiberGramsPer100g
+        energyKilocaloriesPer100g = item.energyKilocaloriesPer100g
+    }
+
     /// A copy of a template's component. The new id and stored values keep this
     /// item independent of later edits to the template.
     init(component: SavedMealComponent, sortIndex: Int) {

@@ -40,7 +40,7 @@ struct LogView: View {
                         ContentUnavailableView(
                             "No meals logged",
                             systemImage: "fork.knife",
-                            description: Text("Meals you scan will appear here.")
+                            description: Text(viewModel.previousDayMeals.isEmpty ? "Meals you scan will appear here." : "Meals you scan will appear here, or copy one from the day before.")
                         )
                     }
                 } else {
@@ -59,6 +59,10 @@ struct LogView: View {
                                 }
                         }
                     }
+                }
+
+                if !viewModel.previousDayMeals.isEmpty {
+                    previousDaySection
                 }
             }
             .navigationTitle("Log")
@@ -85,6 +89,57 @@ struct LogView: View {
             } message: { _ in
                 Text("Keep this meal in your Recipe Book so you can log it again.")
             }
+        }
+    }
+
+    /// The previous day's meals, one tap each to log again, for people who eat the same
+    /// thing day to day.
+    private var previousDaySection: some View {
+        Section {
+            ForEach(viewModel.previousDayMeals) { meal in
+                HStack(spacing: 12) {
+                    Image(systemName: meal.mealType.systemImage)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(meal.mealType.displayName)
+                            .font(.subheadline.weight(.medium))
+                        Text(meal.orderedItems.map(\.name).formatted(.list(type: .and)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if viewModel.isCopied(meal) {
+                        Label("Added", systemImage: "checkmark")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button {
+                            Task { await viewModel.copy(meal) }
+                        } label: {
+                            Label("Copy", systemImage: "plus.square.on.square")
+                        }
+                        .font(.caption.weight(.medium))
+                        .buttonStyle(.bordered)
+                        .tint(.brandGreen)
+                        .disabled(viewModel.isCopying)
+                        .accessibilityLabel("Copy \(meal.mealType.displayName)")
+                    }
+                }
+            }
+            if viewModel.uncopiedPreviousDayMeals.count > 1 {
+                Button {
+                    Task { await viewModel.copyAllFromPreviousDay() }
+                } label: {
+                    Label("Copy All \(viewModel.uncopiedPreviousDayMeals.count) Meals", systemImage: "square.stack.3d.down.right")
+                }
+                .disabled(viewModel.isCopying)
+            }
+        } header: {
+            Text(viewModel.previousDayTitle)
+        } footer: {
+            Text("Copies keep the same foods, portions and time of day.")
         }
     }
 

@@ -53,17 +53,31 @@ final class ManualTrackingViewModel: Identifiable {
     private(set) var isSearching = false
     private(set) var searchError: String?
 
-    /// The food being weighed. Setting it opens the weight screen.
+    /// The food being weighed. Setting it opens the weight screen, suggesting the weight
+    /// used last time for a remembered food and a typical serving otherwise.
     var selectedProduct: FoodProduct? {
         didSet {
-            gramsText = selectedProduct.map { $0.typicalServingGrams.formatted(.number.grouping(.never)) } ?? ""
+            guard let selectedProduct else {
+                gramsText = ""
+                return
+            }
+            let remembered = (remembered.favorites + remembered.recents).first { $0.id == selectedProduct.id }
+            let grams = remembered?.lastGrams ?? selectedProduct.typicalServingGrams
+            gramsText = grams.formatted(.number.grouping(.never).precision(.fractionLength(0...1)))
         }
     }
     var gramsText = ""
 
+    /// Favorites and recently added foods, shown before the user searches.
+    private(set) var remembered = RememberedFoods()
+    private(set) var rememberError: String?
+
     let usesSampleData: Bool
 
     @ObservationIgnored private let lookup: any FoodLookupServiceProtocol
+    /// `nil` where foods aren't remembered, as in some tests.
+    @ObservationIgnored private let persistence: (any PersistenceServiceProtocol)?
+    @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private let permissions: any CameraPermissionProviding
     @ObservationIgnored private let prepareCameraHandover: @MainActor () async -> Void
     @ObservationIgnored private let cameraExists: Bool
@@ -73,15 +87,20 @@ final class ManualTrackingViewModel: Identifiable {
         mode: Mode,
         lookup: any FoodLookupServiceProtocol,
         permissions: any CameraPermissionProviding,
+        persistence: (any PersistenceServiceProtocol)? = nil,
         cameraExists: Bool = AVCaptureDevice.default(for: .video) != nil,
+        now: @escaping @MainActor () -> Date = { .now },
         prepareCameraHandover: @escaping @MainActor () async -> Void = {}
     ) {
         self.mode = mode
         self.lookup = lookup
+        self.persistence = persistence
+        self.now = now
         self.permissions = permissions
         self.cameraExists = cameraExists
         self.prepareCameraHandover = prepareCameraHandover
         usesSampleData = lookup is MockFoodLookupService
+        loadRememberedFoods()
     }
 
     func switchMode(to mode: Mode) {
@@ -186,6 +205,42 @@ final class ManualTrackingViewModel: Identifiable {
         (error as? any LocalizedError)?.fullDescription ?? error.localizedDescription
     }
 
+    // MARK: Favorites and recents
+
+    var hasRememberedFoods: Bool { !remembered.favorites.isEmpty || !remembered.recents.isEmpty }
+
+    func isFavorite(_ product: FoodProduct) -> Bool {
+        remembered.favorites.contains { $0.id == product.id }
+    }
+
+    func toggleFavorite(_ product: FoodProduct) {
+        updateRememberedFoods { try $0.setFavorite(product, isFavorite: !isFavorite(product)) }
+    }
+
+    func forgetRecent(_ food: RememberedFood) {
+        updateRememberedFoods { try $0.forgetRecentFood(id: food.id) }
+    }
+
+    private func loadRememberedFoods() {
+        guard let persistence else { return }
+        do {
+            remembered = try persistence.rememberedFoods(recentLimit: QuickRelog.recentLimit)
+            rememberError = nil
+        } catch {
+            rememberError = Self.message(for: error)
+        }
+    }
+
+    private func updateRememberedFoods(_ change: (any PersistenceServiceProtocol) throws -> Void) {
+        guard let persistence else { return }
+        do {
+            try change(persistence)
+            loadRememberedFoods()
+        } catch {
+            rememberError = Self.message(for: error)
+        }
+    }
+
     // MARK: Weight
 
     var parsedGrams: Double? {
@@ -201,6 +256,20 @@ final class ManualTrackingViewModel: Identifiable {
     var entryMacros: MacroNutrients? {
         guard let selectedProduct, let parsedGrams else { return nil }
         return selectedProduct.macrosPer100Grams.forPortion(grams: parsedGrams)
+    }
+
+    /// The draft to add to the meal. Remembers the food and weight for next time;
+    /// failing to remember it doesn't stop the food being added.
+    func addEntry() -> FoodItemDraft? {
+        guard let draft = makeDraft(), let selectedProduct else { return nil }
+        if let persistence {
+            do {
+                try persistence.recordFoodUse(selectedProduct, grams: draft.portion.grams, at: now())
+            } catch {
+                rememberError = Self.message(for: error)
+            }
+        }
+        return draft
     }
 
     func makeDraft() -> FoodItemDraft? {

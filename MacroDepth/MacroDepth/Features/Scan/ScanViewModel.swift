@@ -306,6 +306,7 @@ final class ScanViewModel {
             mode: mode,
             lookup: foodLookup,
             permissions: permissions,
+            persistence: persistence,
             prepareCameraHandover: { [weak self] in await self?.pauseScannerForBarcode() }
         )
     }

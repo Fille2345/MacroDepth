@@ -73,6 +73,26 @@ protocol PersistenceServiceProtocol: AnyObject {
     @discardableResult
     func logSavedMeal(_ savedMeal: SavedMeal, at timestamp: Date, mealType: MealType?) async throws -> MealEntry
 
+    // MARK: Quick re-log
+
+    /// Logs a copy of the meal on `day`, at the same time of day. Its foods and notes
+    /// are copied; the photo isn't, because it showed the original plate.
+    @discardableResult
+    func copyMeal(_ meal: MealEntry, to day: Date) async throws -> MealEntry
+
+    /// Favorites and the most recently added foods. Remembered foods aren't logged
+    /// data, so changing them doesn't notify `changes()`.
+    func rememberedFoods(recentLimit: Int) throws -> RememberedFoods
+
+    /// Remembers a food added to a meal and its weight, keeping the list to
+    /// `maximumRememberedFoods` non-favorites.
+    func recordFoodUse(_ product: FoodProduct, grams: Double, at date: Date) throws
+
+    func setFavorite(_ product: FoodProduct, isFavorite: Bool) throws
+
+    /// Removes the food from recents. A favorite stays a favorite.
+    func forgetRecentFood(id: String) throws
+
     // MARK: Photo retention
 
     /// Deletes the photo files of meals logged before `cutoff`, and any photo file no
@@ -84,6 +104,11 @@ protocol PersistenceServiceProtocol: AnyObject {
     /// Yields after every saved change to stored data, wherever it was made.
     /// Each call returns an independent stream that ends when its consumer is cancelled.
     func changes() -> AsyncStream<Void>
+}
+
+enum QuickRelog {
+    static let maximumRememberedFoods = 50
+    static let recentLimit = 10
 }
 
 /// What a photo cleanup removed.

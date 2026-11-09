@@ -188,6 +188,10 @@ private struct FoodSearchScreen: View {
 
     var body: some View {
         List {
+            if !viewModel.hasSearchText {
+                rememberedSections
+            }
+
             let genericResults = viewModel.genericResults
             if !genericResults.isEmpty {
                 Section {
@@ -212,7 +216,7 @@ private struct FoodSearchScreen: View {
             }
         }
         .overlay {
-            if !viewModel.hasSearchText {
+            if !viewModel.hasSearchText && !viewModel.hasRememberedFoods {
                 ContentUnavailableView(
                     "Search for a food",
                     systemImage: "magnifyingglass",
@@ -227,6 +231,61 @@ private struct FoodSearchScreen: View {
         )
         .onSubmit(of: .search) { viewModel.submitSearch() }
         .navigationTitle("Search Food")
+    }
+
+    /// Favorites and recent foods, for adding a usual food in two taps.
+    @ViewBuilder
+    private var rememberedSections: some View {
+        let remembered = viewModel.remembered
+        if !remembered.favorites.isEmpty {
+            Section("Favorites") {
+                ForEach(remembered.favorites) { food in
+                    rememberedButton(food)
+                        .swipeActions {
+                            Button("Unfavorite", systemImage: "star.slash") {
+                                viewModel.toggleFavorite(food.product)
+                            }
+                            .tint(.orange)
+                        }
+                }
+            }
+        }
+        if !remembered.recents.isEmpty {
+            Section {
+                ForEach(remembered.recents) { food in
+                    rememberedButton(food)
+                        .swipeActions {
+                            Button("Remove", systemImage: "trash", role: .destructive) {
+                                viewModel.forgetRecent(food)
+                            }
+                            Button("Favorite", systemImage: "star") {
+                                viewModel.toggleFavorite(food.product)
+                            }
+                            .tint(.yellow)
+                        }
+                }
+            } header: {
+                Text("Recent")
+            } footer: {
+                Text("Swipe left on a food to favorite or remove it.")
+            }
+        }
+        if let error = viewModel.rememberError {
+            Section {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func rememberedButton(_ food: RememberedFood) -> some View {
+        Button {
+            viewModel.selectedProduct = food.product
+        } label: {
+            FoodResultRow(product: food.product, lastGrams: food.lastGrams, isFavorite: food.isFavorite)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -268,13 +327,28 @@ private struct FoodSearchScreen: View {
 
 private struct FoodResultRow: View {
     let product: FoodProduct
+    /// For a remembered food: the weight added last time.
+    var lastGrams: Double? = nil
+    var isFavorite = false
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(product.name)
-                    .font(.body)
-                if product.isGeneric {
+                HStack(spacing: 4) {
+                    if isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                            .accessibilityLabel("Favorite")
+                    }
+                    Text(product.name)
+                        .font(.body)
+                }
+                if let lastGrams {
+                    Text("Last time \(NutritionFormat.grams(lastGrams)) · \(NutritionFormat.kilocalories(product.macrosPer100Grams.forPortion(grams: lastGrams).energyKilocalories))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if product.isGeneric {
                     Text("Whole food")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color.brandGreen)
@@ -283,14 +357,18 @@ private struct FoodResultRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Per 100 g: \(NutritionFormat.grams(product.macrosPer100Grams.proteinGrams)) protein")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if lastGrams == nil {
+                    Text("Per 100 g: \(NutritionFormat.grams(product.macrosPer100Grams.proteinGrams)) protein")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            Text(NutritionFormat.kilocalories(product.macrosPer100Grams.energyKilocalories))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
+            if lastGrams == nil {
+                Text(NutritionFormat.kilocalories(product.macrosPer100Grams.energyKilocalories))
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
@@ -347,7 +425,7 @@ private struct FoodWeightScreen: View {
                 MacroSummaryView(macros: viewModel.entryMacros ?? .zero)
 
                 Button {
-                    if let draft = viewModel.makeDraft() { onAdd(draft) }
+                    if let draft = viewModel.addEntry() { onAdd(draft) }
                 } label: {
                     Label("Add to Meal", systemImage: "plus.circle.fill")
                         .frame(maxWidth: .infinity)
@@ -364,16 +442,34 @@ private struct FoodWeightScreen: View {
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Choose Weight")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                let isFavorite = viewModel.isFavorite(product)
+                Button {
+                    viewModel.toggleFavorite(product)
+                } label: {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .foregroundStyle(isFavorite ? .yellow : .accentColor)
+                }
+                .accessibilityLabel(isFavorite ? "Remove from Favorites" : "Add to Favorites")
+            }
+        }
         .onAppear { isEnteringWeight = true }
     }
 }
 
 #Preview("Search") {
-    ManualTrackingView(
+    let persistence = AppDependencies.makePreview().persistence
+    for (index, product) in GenericFoodCatalog.search("ri").prefix(3).enumerated() {
+        try? persistence.recordFoodUse(product, grams: 150, at: .now)
+        if index == 0 { try? persistence.setFavorite(product, isFavorite: true) }
+    }
+    return ManualTrackingView(
         viewModel: ManualTrackingViewModel(
             mode: .search,
             lookup: MockFoodLookupService(),
-            permissions: MockCameraPermissionService()
+            permissions: MockCameraPermissionService(),
+            persistence: persistence
         ),
         onAdd: { _ in },
         onCancel: {}

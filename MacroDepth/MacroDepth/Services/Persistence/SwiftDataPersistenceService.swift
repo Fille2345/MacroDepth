@@ -13,6 +13,7 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         WeightEntry.self,
         SavedMeal.self,
         SavedMealComponent.self,
+        TrackedFood.self,
     ])
 
     let container: ModelContainer
@@ -497,6 +498,131 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         }
         changeBroadcaster.send(())
         return savedMeal
+    }
+
+    // MARK: Quick re-log
+
+    @discardableResult
+    func copyMeal(_ meal: MealEntry, to day: Date) async throws -> MealEntry {
+        guard !meal.items.isEmpty else {
+            throw PersistenceError.invalidDraft("A meal needs at least one food item.")
+        }
+        let start = calendar.startOfDay(for: day)
+        let timeOfDay = calendar.dateComponents([.hour, .minute, .second], from: meal.timestamp)
+        let timestamp = calendar.date(byAdding: timeOfDay, to: start) ?? start
+
+        let copy = MealEntry(timestamp: timestamp, mealType: meal.mealType, notes: meal.notes)
+        copy.copiedFromMealID = meal.id
+        copy.savedMeal = meal.savedMeal
+        context.insert(copy)
+        for item in meal.orderedItems {
+            let itemCopy = LoggedFoodItem(copying: item)
+            context.insert(itemCopy)
+            copy.items.append(itemCopy)
+        }
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.saveFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+        return copy
+    }
+
+    func rememberedFoods(recentLimit: Int) throws -> RememberedFoods {
+        var favorites = FetchDescriptor<TrackedFood>(
+            predicate: #Predicate { $0.isFavorite },
+            sortBy: [SortDescriptor(\.name)]
+        )
+        favorites.fetchLimit = QuickRelog.maximumRememberedFoods
+        var recents = FetchDescriptor<TrackedFood>(
+            predicate: #Predicate { !$0.isFavorite && $0.lastUsedAt != nil },
+            sortBy: [SortDescriptor(\.lastUsedAt, order: .reverse)]
+        )
+        recents.fetchLimit = recentLimit
+        do {
+            return RememberedFoods(
+                favorites: try context.fetch(favorites).map(\.remembered),
+                recents: try context.fetch(recents).map(\.remembered)
+            )
+        } catch {
+            throw PersistenceError.fetchFailed(error.localizedDescription)
+        }
+    }
+
+    func recordFoodUse(_ product: FoodProduct, grams: Double, at date: Date) throws {
+        guard grams.isFinite, grams > 0 else { throw PersistenceError.invalidDraft("The weight is invalid.") }
+        let food = try trackedFood(id: product.id) ?? {
+            let food = TrackedFood(product: product)
+            context.insert(food)
+            return food
+        }()
+        food.update(from: product)
+        food.lastGrams = grams
+        food.lastUsedAt = date
+        food.useCount += 1
+
+        // Keep the newest non-favorites; favorites are kept regardless. Trimmed in
+        // memory because a fetch offset doesn't account for the unsaved insert above.
+        let nonFavorites = FetchDescriptor<TrackedFood>(predicate: #Predicate { !$0.isFavorite })
+        try saveFoods {
+            let newestFirst = try context.fetch(nonFavorites)
+                .sorted { ($0.lastUsedAt ?? .distantPast) > ($1.lastUsedAt ?? .distantPast) }
+            for stale in newestFirst.dropFirst(QuickRelog.maximumRememberedFoods) where stale.productID != product.id {
+                context.delete(stale)
+            }
+        }
+    }
+
+    func setFavorite(_ product: FoodProduct, isFavorite: Bool) throws {
+        try saveFoods {
+            if let food = try trackedFood(id: product.id) {
+                if !isFavorite && food.lastUsedAt == nil {
+                    context.delete(food)   // never added, so nothing left to remember
+                } else {
+                    food.isFavorite = isFavorite
+                }
+            } else if isFavorite {
+                let food = TrackedFood(product: product)
+                food.isFavorite = true
+                context.insert(food)
+            }
+        }
+    }
+
+    func forgetRecentFood(id: String) throws {
+        try saveFoods {
+            guard let food = try trackedFood(id: id) else { return }
+            if food.isFavorite {
+                food.lastUsedAt = nil
+            } else {
+                context.delete(food)
+            }
+        }
+    }
+
+    private func trackedFood(id: String) throws -> TrackedFood? {
+        var descriptor = FetchDescriptor<TrackedFood>(predicate: #Predicate { $0.productID == id })
+        descriptor.fetchLimit = 1
+        do {
+            return try context.fetch(descriptor).first
+        } catch {
+            throw PersistenceError.fetchFailed(error.localizedDescription)
+        }
+    }
+
+    private func saveFoods(_ changes: () throws -> Void) throws {
+        do {
+            try changes()
+            try context.save()
+        } catch let error as PersistenceError {
+            context.rollback()
+            throw error
+        } catch {
+            context.rollback()
+            throw PersistenceError.saveFailed(error.localizedDescription)
+        }
     }
 
     // MARK: Photo retention
