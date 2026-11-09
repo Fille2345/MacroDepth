@@ -10,10 +10,13 @@ struct MacroDepthApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(dependencies: dependencies)
+                .task { await dependencies.health.observeChanges() }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active {
                 dependencies.startPhotoCleanup()
+                // Weight may have been logged in Health while the app was away.
+                dependencies.health.requestSync()
             }
         }
     }

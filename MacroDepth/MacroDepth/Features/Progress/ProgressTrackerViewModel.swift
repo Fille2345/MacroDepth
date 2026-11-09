@@ -134,7 +134,9 @@ final class ProgressTrackerViewModel {
         }
     }
 
+    /// Weigh-ins from Apple Health are deleted there; deleting one here would only bring it back.
     func deleteWeight(_ entry: WeightEntry) {
+        guard !entry.isFromHealth else { return }
         do {
             try persistence.deleteWeightEntry(entry)
             load()

@@ -23,6 +23,7 @@ final class AppDependencies {
     /// The user's Gemini key, shared by Settings and Scan.
     let apiKeys: GeminiKeyManager
     let modelID: String
+    let health: HealthSyncCoordinator
     /// Set when the persistent store couldn't open and an in-memory store is used.
     let persistenceWarning: String?
 
@@ -36,6 +37,7 @@ final class AppDependencies {
         cameraPermissions: any CameraPermissionProviding,
         apiKeys: GeminiKeyManager,
         modelID: String = AppConfiguration.defaultModelID,
+        health: HealthSyncCoordinator? = nil,
         persistenceWarning: String? = nil
     ) {
         self.mode = mode
@@ -47,6 +49,11 @@ final class AppDependencies {
         self.cameraPermissions = cameraPermissions
         self.apiKeys = apiKeys
         self.modelID = modelID
+        self.health = health ?? HealthSyncCoordinator(
+            store: InMemoryHealthStore(),
+            persistence: persistence,
+            defaults: UserDefaults(suiteName: "MacroDepthPreviewHealth-\(UUID().uuidString)") ?? .standard
+        )
         self.persistenceWarning = persistenceWarning
     }
 
@@ -110,6 +117,7 @@ final class AppDependencies {
             cameraPermissions: SystemCameraPermissionService(),
             apiKeys: GeminiKeyManager(store: keyStore),
             modelID: modelID,
+            health: HealthSyncCoordinator(store: HealthKitStore(), persistence: persistence),
             persistenceWarning: persistenceWarning
         )
     }

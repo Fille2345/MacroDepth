@@ -39,6 +39,11 @@ targets:
     platform: iOS
     sources:
       - path: MacroDepth
+    entitlements:
+      path: MacroDepth/MacroDepth.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
     settings:
       base:
         PRODUCT_NAME: MacroDepth

@@ -224,6 +224,7 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
         if let existing = try weightEntries(in: day).first {
             existing.weightKg = kilograms
             existing.date = day.start
+            existing.sourceRawValue = nil   // entered here, so Health no longer changes it
             entry = existing
         } else {
             entry = WeightEntry(date: day.start, weightKg: kilograms)
@@ -242,6 +243,70 @@ final class SwiftDataPersistenceService: PersistenceServiceProtocol {
 
     func deleteWeightEntry(_ entry: WeightEntry) throws {
         context.delete(entry)
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.weightFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+    }
+
+    @discardableResult
+    func importHealthWeights(_ weights: [DailyWeight], covering interval: DateInterval) throws -> Int {
+        let existing = try weightEntries(in: interval)
+        var entriesByDay: [Date: WeightEntry] = [:]
+        for entry in existing {
+            entriesByDay[calendar.startOfDay(for: entry.date)] = entry
+        }
+        var incoming: [Date: Double] = [:]
+        for weight in weights where weight.kilograms.isFinite && UserProfileDraft.weightRange.contains(weight.kilograms) {
+            let day = calendar.startOfDay(for: weight.day)
+            if interval.contains(day) {
+                incoming[day] = weight.kilograms
+            }
+        }
+
+        var changes = 0
+        for (day, kilograms) in incoming {
+            if let entry = entriesByDay[day] {
+                // An app-entered weight wins; only earlier imports follow Health.
+                guard entry.isFromHealth, abs(entry.weightKg - kilograms) > 0.000_1 else { continue }
+                entry.weightKg = kilograms
+                changes += 1
+            } else {
+                context.insert(WeightEntry(date: day, weightKg: kilograms, isFromHealth: true))
+                changes += 1
+            }
+        }
+        for (day, entry) in entriesByDay where entry.isFromHealth && incoming[day] == nil {
+            context.delete(entry)   // deleted in Health
+            changes += 1
+        }
+
+        guard changes > 0 else { return 0 }
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw PersistenceError.weightFailed(error.localizedDescription)
+        }
+        changeBroadcaster.send(())
+        return changes
+    }
+
+    func releaseHealthWeights() throws {
+        let source = WeightEntry.healthSource
+        let imported: [WeightEntry]
+        do {
+            imported = try context.fetch(FetchDescriptor<WeightEntry>(predicate: #Predicate { $0.sourceRawValue == source }))
+        } catch {
+            throw PersistenceError.weightFailed(error.localizedDescription)
+        }
+        guard !imported.isEmpty else { return }
+        for entry in imported {
+            entry.sourceRawValue = nil
+        }
         do {
             try context.save()
         } catch {

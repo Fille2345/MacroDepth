@@ -61,6 +61,8 @@ struct SettingsView: View {
                     Text(keyRemovalError ?? "")
                 }
 
+                AppleHealthSection(health: viewModel.health)
+
                 Section {
                     LabeledContent("Food database", value: viewModel.usesSampleFoodData ? "Sample data" : "Open Food Facts")
                 } footer: {
@@ -95,6 +97,67 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+        }
+    }
+}
+
+/// Turns sync on and off and shows how the last sync went.
+private struct AppleHealthSection: View {
+    let health: HealthSyncCoordinator
+    @State private var isEnabling = false
+
+    var body: some View {
+        Section {
+            if health.isAvailable {
+                Toggle(isOn: Binding(
+                    get: { health.isEnabled },
+                    set: { isOn in
+                        if isOn {
+                            isEnabling = true
+                            Task {
+                                await health.enable()
+                                isEnabling = false
+                            }
+                        } else {
+                            health.disable()
+                        }
+                    }
+                )) {
+                    Label("Sync with Apple Health", systemImage: "heart.text.square")
+                }
+                .disabled(isEnabling)
+                statusRow
+            } else {
+                Label("Apple Health isn't available on this device.", systemImage: "heart.slash")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Apple Health")
+        } footer: {
+            Text("Reads your body weight for the progress charts; a weight you enter here wins for its day. Saves each meal's calories, protein, carbohydrates (including fibre), fat and fibre from the last \(HealthSyncCoordinator.mealWindowDays) days, and keeps them up to date. Turning sync off leaves data already in Health there.")
+        }
+    }
+
+    @ViewBuilder
+    private var statusRow: some View {
+        switch health.status {
+        case .off:
+            EmptyView()
+        case .syncing:
+            LabeledContent("Status") {
+                ProgressView()
+            }
+        case .synced(let date):
+            LabeledContent("Last synced", value: date.formatted(date: .omitted, time: .shortened))
+        case .failed(let message):
+            Label {
+                Text(message)
+                    .font(.subheadline)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
         }
     }
 }

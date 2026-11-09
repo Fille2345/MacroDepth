@@ -12,7 +12,7 @@ open MacroDepth.xcodeproj
 
 No API key is built into the app. On first scan the app asks for your own Gemini API key (free from [Google AI Studio](https://aistudio.google.com/apikey)); you can also add, replace or remove it under Settings → Gemini. It's stored in the device Keychain (`AfterFirstUnlockThisDeviceOnly`) and only sent to Google. Previews use sample analysis and need no key.
 
-To run on your own device, optionally copy `Config/Local.example.xcconfig` to `Config/Local.xcconfig` (git-ignored) and set your bundle identifier and team.
+To run on your own device, copy `Config/Local.example.xcconfig` to `Config/Local.xcconfig` (git-ignored) and set your bundle identifier and `DEVELOPMENT_TEAM`. The HealthKit capability needs a team to sign.
 
 To check a key and the request format against the real API, using a few tokens:
 
@@ -47,6 +47,8 @@ TEST_RUNNER_GEMINI_API_KEY=<your key> xcodebuild test -scheme MacroDepth \
 - Food search is hybrid. `GenericFoodCatalog` (USDA values, English and Swedish names) filters as you type with no network, and its results come first. Open Food Facts results follow after the user submits, and a failure there leaves the whole foods in place.
 - ARKit and `BarcodeCameraController` can't share the camera. `ScanViewModel` pauses the AR session before the barcode camera starts, and restarts it when the sheet closes.
 - A `SavedMeal` is a template. Logging one copies its components into a new `MealEntry`, so editing or deleting a template never changes past days. Every record owns its own photo file.
+- Apple Health sync is opt-in (Settings → Apple Health) and runs through `HealthSyncCoordinator` on activation and after every stored change. Body weight comes in as `WeightEntry` rows marked `isFromHealth`; an app-entered weight wins for its day, and turning sync off keeps imports as ordinary entries. Meals from the last 30 days go out as one `HKCorrelation` (food) each, keyed by meal id with a fingerprint, so edits and deletions are mirrored and nothing is written twice. Health's carbohydrates are total carbs, so fibre is added back (and written separately too).
+- `.xcodeproj` is generated, so a team picked in Xcode's Signing tab is lost on the next `xcodegen generate`. Put `DEVELOPMENT_TEAM` in `Config/Local.xcconfig`; HealthKit needs it on a device.
 - Logged meals keep their photo for 7 days (`PhotoRetention`). `prunePhotos(ofMealsBefore:)` runs whenever the app becomes active: it clears each expired meal's `imageFileName`, then deletes the file, then sweeps files no record refers to (skipping any changed in the last hour, which may belong to a save in progress). Meal records and macros are never deleted, and templates keep their own photo copies.
 - New stored properties must be optional or have a default, so existing stores migrate automatically. `SavedMealMigrationTests` keeps a copy of the previous schema to check this.
 - User notes can change Gemini's macros and density suggestions, but never measured volume. Pasted text is treated as data, not as instructions to the model.

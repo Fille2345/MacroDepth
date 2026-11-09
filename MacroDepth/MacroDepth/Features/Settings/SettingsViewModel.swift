@@ -9,6 +9,7 @@ import Foundation
 struct SettingsViewModel {
     let apiKeys: GeminiKeyManager
     let modelID: String
+    let health: HealthSyncCoordinator
     let hardwareCapabilities: ScannerCapabilities
     let activeScannerCapabilities: ScannerCapabilities
     let usesMockAnalysis: Bool
@@ -20,6 +21,7 @@ struct SettingsViewModel {
     init(dependencies: AppDependencies, bundle: Bundle = .main) {
         apiKeys = dependencies.apiKeys
         modelID = dependencies.modelID
+        health = dependencies.health
         hardwareCapabilities = dependencies.hardwareCapabilities
         activeScannerCapabilities = dependencies.scanner.capabilities
         usesMockAnalysis = dependencies.nutrition is MockNutritionService

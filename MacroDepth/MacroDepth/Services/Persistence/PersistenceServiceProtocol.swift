@@ -38,6 +38,16 @@ protocol PersistenceServiceProtocol: AnyObject {
 
     func deleteWeightEntry(_ entry: WeightEntry) throws
 
+    /// Mirrors Apple Health's daily weights for the interval. Days without an app-entered
+    /// weight get Health's, earlier imports follow Health's changes and deletions, and
+    /// app-entered weights are never touched. Saves, and notifies, only if something changed.
+    /// Returns the number of weigh-ins added, changed or removed.
+    @discardableResult
+    func importHealthWeights(_ weights: [DailyWeight], covering interval: DateInterval) throws -> Int
+
+    /// Turns every imported weigh-in into an ordinary one, when sync is turned off.
+    func releaseHealthWeights() throws
+
     // MARK: Saved meals
 
     /// All templates, most recently changed first.

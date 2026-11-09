@@ -10,10 +10,19 @@ final class WeightEntry {
     @Attribute(.unique) var id: UUID
     var date: Date
     var weightKg: Double
+    /// `"health"` when imported from Apple Health; `nil` when entered in the app.
+    /// Optional, so existing stores migrate automatically.
+    var sourceRawValue: String?
 
-    init(id: UUID = UUID(), date: Date, weightKg: Double) {
+    static let healthSource = "health"
+
+    init(id: UUID = UUID(), date: Date, weightKg: Double, isFromHealth: Bool = false) {
         self.id = id
         self.date = date
         self.weightKg = weightKg
+        self.sourceRawValue = isFromHealth ? Self.healthSource : nil
     }
+
+    /// Kept in step with Apple Health while sync is on, so it's changed or deleted there.
+    var isFromHealth: Bool { sourceRawValue == Self.healthSource }
 }

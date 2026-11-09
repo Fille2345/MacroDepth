@@ -50,19 +50,37 @@ struct ProgressTrackerView: View {
             }
 
             if !viewModel.weightEntries.isEmpty {
-                Section("Weigh-ins") {
+                Section {
                     ForEach(viewModel.weightEntries) { entry in
-                        LabeledContent(
-                            entry.date.formatted(date: .abbreviated, time: .omitted),
-                            value: NutritionFormat.weight(kilograms: entry.weightKg)
-                        )
+                        LabeledContent {
+                            HStack(spacing: 6) {
+                                if entry.isFromHealth {
+                                    Image(systemName: "heart.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.pink)
+                                        .accessibilityLabel("From Apple Health")
+                                }
+                                Text(NutritionFormat.weight(kilograms: entry.weightKg))
+                            }
+                        } label: {
+                            Text(entry.date.formatted(date: .abbreviated, time: .omitted))
+                        }
                         .swipeActions {
-                            Button(role: .destructive) {
-                                viewModel.deleteWeight(entry)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            // Health's weigh-ins are deleted in Health, or they'd come back.
+                            if !entry.isFromHealth {
+                                Button(role: .destructive) {
+                                    viewModel.deleteWeight(entry)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
+                    }
+                } header: {
+                    Text("Weigh-ins")
+                } footer: {
+                    if viewModel.weightEntries.contains(where: \.isFromHealth) {
+                        Label("From Apple Health. Change or delete these in the Health app.", systemImage: "heart.fill")
                     }
                 }
             }

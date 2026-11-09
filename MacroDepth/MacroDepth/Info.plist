@@ -42,6 +42,10 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>MacroDepth reads your body weight from Apple Health to show it in your progress charts.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>MacroDepth saves the calories, protein, carbohydrates, fat and fibre of meals you log to Apple Health.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>MacroDepth uses the camera and depth sensor to measure food portions on your plate.</string>
 	<key>GEMINI_MODEL_ID</key>
