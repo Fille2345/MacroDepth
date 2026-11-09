@@ -47,6 +47,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: MacroDepth
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: $(MACRODEPTH_BUNDLE_IDENTIFIER)
         INFOPLIST_FILE: MacroDepth/Info.plist
         GENERATE_INFOPLIST_FILE: NO
